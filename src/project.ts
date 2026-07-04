@@ -5,9 +5,9 @@
 
 import * as path from "node:path";
 import * as os from "node:os";
-import * as fs from "node:fs";
 import { resolveProjectsRoot } from "./paths.js";
 import type { ProjectMemoryMode } from "./types.js";
+import { findGitRoot as findWorkspaceGitRoot, resolveWorkspace } from "./workspace/index.js";
 
 export interface ProjectInfo {
   /** Project name (directory basename), or null if not in a project. */
@@ -48,17 +48,7 @@ function normalizeDetectionOptions(optionsOrProjectsMemoryDir?: ProjectDetection
 }
 
 export function findGitRoot(cwd: string): string | null {
-  let current = path.resolve(cwd);
-
-  while (true) {
-    if (fs.existsSync(path.join(current, ".git"))) {
-      return current;
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
+  return findWorkspaceGitRoot(cwd);
 }
 
 /**
@@ -87,13 +77,13 @@ export function detectProject(
   }
 
   if (options.projectMemoryMode === "repo-local") {
-    const rootDir = findGitRoot(resolved);
-    if (!rootDir) return { name: null, rootDir: null, memoryDir: null };
+    const workspace = resolveWorkspace({ cwd: resolved });
+    if (!workspace) return { name: null, rootDir: null, memoryDir: null };
 
     return {
-      name: path.basename(rootDir),
-      rootDir,
-      memoryDir: path.join(rootDir, options.projectMemoryDirName),
+      name: workspace.displayName,
+      rootDir: workspace.rootDir,
+      memoryDir: path.join(workspace.rootDir, options.projectMemoryDirName),
     };
   }
 
