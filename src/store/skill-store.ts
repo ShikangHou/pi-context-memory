@@ -2,7 +2,9 @@
  * SkillStore — procedural memory stored as Pi-native skills.
  *
  * Global skills live in ~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md.
- * Project skills live in ~/.pi/agent/<projectsMemoryDir>/<project>/skills/<slug>/SKILL.md.
+ * Project skills live in the active project skills directory, either
+ * ~/.pi/agent/<projectsMemoryDir>/<project>/skills/<slug>/SKILL.md in
+ * central mode or <git-root>/.pi/skills/<slug>/SKILL.md in repo-local mode.
  */
 
 import * as fs from "node:fs/promises";

@@ -140,8 +140,9 @@ export default function (pi: ExtensionAPI) {
     // Best-effort only: failed SQLite backfill should not block extension startup.
   }
 
-  // Detect project from cwd using shared helper
-  // Project-scoped store: ~/.pi/agent/<projectsMemoryDir>/<project_name>/
+  // Detect project from cwd using shared helper. Project-scoped storage is
+  // ~/.pi/agent/<projectsMemoryDir>/<project_name>/ in central mode, or
+  // <git-root>/<projectMemoryDirName>/ in repo-local mode.
   const projectConfig = project.memoryDir
     ? { ...config, memoryCharLimit: config.projectCharLimit, memoryDir: project.memoryDir }
     : { ...config, memoryDir: undefined };

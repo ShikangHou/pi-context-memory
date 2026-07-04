@@ -201,6 +201,7 @@ export function registerMemoryTool(
     promptGuidelines: [
       "Use the memory tool proactively when the user corrects you, shares a preference, or reveals personal details worth remembering.",
       "Use the memory tool when you discover environment facts, project conventions, or reusable patterns useful in future sessions.",
+      "Use target='project' for repository-specific facts; in repo-local project memory mode these are written under the Git root .pi directory.",
       "Do NOT use memory for temporary task state, TODO items, or session progress — only for durable, cross-session facts.",
       "Use target='failure' with category to save what didn't work (failures, corrections, insights).",
     ],

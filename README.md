@@ -117,9 +117,11 @@ The extension stores memory at two levels:
 | Tier | Location | What goes here | Available when |
 |---|---|---|---|
 | **Global** | `~/.pi/agent/pi-hermes-memory/` | Facts that apply everywhere — your name, preferences, OS, tools | Searchable via `memory_search` |
-| **Project** | `~/.pi/agent/projects-memory/<project>/` | Facts scoped to one codebase — architecture decisions, API quirks, team norms | Searchable when cwd matches the project |
+| **Project** | `~/.pi/agent/projects-memory/<project>/` by default, or `<git-root>/.pi/` with repo-local mode | Facts scoped to one codebase — architecture decisions, API quirks, team norms | Searchable when cwd matches the project |
 
 By default, full Markdown memories are **not** injected into the system prompt. The system prompt gets a full-detail `<memory-policy>` that tells the agent when to call `memory_search` and how to treat memory results. This keeps first-turn token usage low while preserving access to user, project, failure, correction, insight, preference, convention, and tool-quirk memories.
+
+Project memory storage is configurable. The default `central` mode keeps project memory under `~/.pi/agent/projects-memory/<project>/`. Set `"projectMemoryMode": "repo-local"` to store active-project memory in `<git-root>/.pi/` and project skills in `<git-root>/.pi/skills/`, so those plain Markdown files can be reviewed and synced with Git.
 
 ```
 System Prompt
@@ -199,7 +201,7 @@ The agent also gets a `skill_manage` tool for saving reusable procedures. The ex
 Skills are stored in Pi-native locations:
 
 - Global skills: `~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md`
-- Project skills: `~/.pi/agent/projects-memory/<project>/skills/<slug>/SKILL.md`
+- Project skills: `~/.pi/agent/projects-memory/<project>/skills/<slug>/SKILL.md` in central mode, or `<git-root>/.pi/skills/<slug>/SKILL.md` in repo-local mode
 
 New skills must choose scope explicitly:
 
@@ -255,7 +257,8 @@ Project-scoped skills are loaded via Pi's `resources_discover` hook.
 
 On discovery, the extension returns the active project's skills directory as a skill path:
 
-- `~/.pi/agent/projects-memory/<project>/skills/`
+- `~/.pi/agent/projects-memory/<project>/skills/` in central mode
+- `<git-root>/.pi/skills/` in repo-local mode
 
 This lets Pi discover project skills as native skills without copying them into the global skills folder.
 
@@ -265,7 +268,7 @@ This lets Pi discover project skills as native skills without copying them into 
 |---|---|---|---|
 | **memory** | `MEMORY.md` | Agent's notes — env facts, project conventions, tool quirks, lessons learned | 5,000 chars |
 | **user** | `USER.md` | User profile — name, preferences, communication style, habits | 5,000 chars |
-| **skills** | `~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md` or `projects-memory/<project>/skills/<slug>/SKILL.md` | Procedures — *how* to debug, deploy, test, or fix something | Unlimited |
+| **skills** | `~/.pi/agent/pi-hermes-memory/skills/<slug>/SKILL.md`, `projects-memory/<project>/skills/<slug>/SKILL.md`, or `<git-root>/.pi/skills/<slug>/SKILL.md` | Procedures — *how* to debug, deploy, test, or fix something | Unlimited |
 | **extended** | `sessions.db` | Searchable memories beyond the core limit | Unlimited |
 | **sessions** | `sessions.db` | Past conversation history (searchable via FTS5) | Unlimited |
 
@@ -436,6 +439,8 @@ Create `~/.pi/agent/hermes-memory-config.json`:
   "projectCharLimit": 5000,
   "memoryDir": "~/.pi/agent/pi-hermes-memory",
   "projectsMemoryDir": "projects-memory",
+  "projectMemoryMode": "central",
+  "projectMemoryDirName": ".pi",
   "sessionSearch": { "variant": "legacy" },
   "llmModelOverride": "openrouter/deepseek/deepseek-v4-flash",
   "llmThinkingOverride": "off",
@@ -468,6 +473,8 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 | `projectCharLimit` | `5000` | Max characters in project-scoped MEMORY.md |
 | `memoryDir` | `~/.pi/agent/pi-hermes-memory` | Custom directory for extension storage files |
 | `projectsMemoryDir` | `projects-memory` | Subdirectory under `~/.pi/agent/` for project-scoped memory |
+| `projectMemoryMode` | `central` | Project memory storage mode. `central` stores under `~/.pi/agent/projects-memory/<project>/`; `repo-local` stores under the current Git root |
+| `projectMemoryDirName` | `.pi` | Directory name used for repo-local project memory, producing `<git-root>/.pi/` by default |
 | `sessionSearch` | `{ "variant": "legacy" }` | Session search implementation: `legacy` keeps the existing SQLite/FTS snippet search; `anchors` uses the opt-in Markdown request surface and returns compact JSONL line-range anchors from `~/.pi/agent/sessions/` |
 | `llmModelOverride` | unset | Optional model override for background review (direct and subprocess), correction save, session flush, and consolidation |
 | `llmThinkingOverride` | unset | Optional thinking override for those LLM calls; valid values are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. If `llmModelOverride` is set and this is omitted, review/child calls default to `off` |
@@ -519,6 +526,20 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 ```
 
 These are plain markdown files. You can read and edit them directly if you want to curate what the agent remembers. Memory entries are separated by `§` (section sign). Skills use Pi-compatible `SKILL.md` files with frontmatter.
+
+With repo-local project memory enabled, active-project data lives in the repository instead:
+
+```
+<git-root>/
+└── .pi/
+    ├── MEMORY.md          ← Project-scoped memory for this repository
+    ├── failures.md        ← Project-scoped failures/corrections when routed here
+    └── skills/
+        └── deploy-checklist/
+            └── SKILL.md
+```
+
+Repo-local project memory is intended for project facts and workflows that are safe to commit. Review `.pi/` before adding it to Git, especially if memories mention local paths, internal URLs, or environment-specific details.
 
 If you are upgrading from a version that stored project memory directly at `~/.pi/agent/<project>/MEMORY.md`, the extension copies or merges those entries into `~/.pi/agent/projects-memory/<project>/MEMORY.md` on startup. The old folders are left in place as a backup.
 

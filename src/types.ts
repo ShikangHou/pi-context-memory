@@ -50,7 +50,7 @@ export interface MemoryConfig {
   flushRecentMessages?: number;
   /** Override extension storage directory. Default: ~/.pi/agent/pi-hermes-memory */
   memoryDir?: string;
-  /** Directory for project-scoped memory (relative to ~/.pi/agent). Default: "projects-memory" */
+  /** Directory for central-mode project-scoped memory (relative to ~/.pi/agent). Default: "projects-memory" */
   projectsMemoryDir?: string;
   /** Where project-scoped memory is stored. Default: "central" */
   projectMemoryMode?: ProjectMemoryMode;

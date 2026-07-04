@@ -43,6 +43,10 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("  Skills:   Procedures — how to debug, deploy, test");
         lines.push("  Extended: SQLite search mirror for Markdown memory + backfill");
         lines.push("");
+        lines.push("  Project storage:");
+        lines.push("  • central:    ~/.pi/agent/projects-memory/<project>/");
+        lines.push("  • repo-local: <git-root>/.pi/ (Git-syncable project memory)");
+        lines.push("");
         lines.push("  Memory Categories:");
         lines.push("  ─────────────────");
         lines.push("  [failure]      What was tried but didn't work");
@@ -127,6 +131,10 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("");
         lines.push("  Legacy mode: set memoryMode=\"legacy-inject\" to restore full");
         lines.push("  MEMORY.md, USER.md, project memory, and failure prompt blocks.");
+        lines.push("");
+        lines.push("  target=\"project\" writes to the active project store:");
+        lines.push("  central mode uses ~/.pi/agent/projects-memory/<project>/");
+        lines.push("  repo-local mode uses <git-root>/.pi/");
       }
 
       if (section.startsWith("🏗️")) {
@@ -147,6 +155,7 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("  ┌─────────────────────────────────────┐");
         lines.push("  │ MEMORY.md / USER.md / failures.md   │");
         lines.push("  │ projects-memory/<project>/MEMORY.md │");
+        lines.push("  │ or <git-root>/.pi/MEMORY.md         │");
         lines.push("  │ session_search(\"auth flow\")         │");
         lines.push("  │ memory_search(\"testing patterns\")   │");
         lines.push("  │ /memory-sync-markdown (backfill old md)│");
@@ -155,6 +164,9 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("");
         lines.push("  Legacy mode can still inject full memory blocks for users");
         lines.push("  who explicitly opt into memoryMode=\"legacy-inject\".");
+        lines.push("");
+        lines.push("  Repo-local project memory is enabled with:");
+        lines.push("  { \"projectMemoryMode\": \"repo-local\", \"projectMemoryDirName\": \".pi\" }");
       }
 
       if (section.startsWith("❓")) {
@@ -175,7 +187,9 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("    → Check /memory-insights, tell agent \"remember X\"");
         lines.push("");
         lines.push("  \"Want to edit manually\"");
-        lines.push("    → Files at ~/.pi/agent/memory/ (plain markdown)");
+        lines.push("    → Global files at ~/.pi/agent/pi-hermes-memory/");
+        lines.push("    → Central project files at ~/.pi/agent/projects-memory/<project>/");
+        lines.push("    → Repo-local project files at <git-root>/.pi/");
       }
 
       if (lines.length > 0) {

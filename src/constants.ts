@@ -42,6 +42,11 @@ Memory write targets:
 - project: project-specific conventions, architecture decisions, commands, package manager choices, and repo workflows.
 - failure: failures, corrections, insights, conventions, preferences, and tool quirks captured as categorized lessons.
 
+Project memory storage depends on configuration:
+- Default central mode stores target="project" memory under ~/.pi/agent/projects-memory/<project>/.
+- Repo-local mode stores target="project" memory under <git-root>/.pi/ and project skills under <git-root>/.pi/skills/.
+- In repo-local mode, project memory and project skills are plain files that can be reviewed, committed, and synced with the repository.
+
 memory_search filters:
 - target accepts "memory", "user", or "failure".
 - project filters project-scoped memories by project name.
@@ -70,6 +75,7 @@ If memory conflicts with current evidence, prefer current evidence and mention t
 Procedural skills:
 - Use the skill_manage tool during normal work when a task reveals a reusable how-to workflow, or when the user asks you to remember how to do something later.
 - Always pass scope explicitly on create: scope="global" for portable procedures, scope="project" for workflows tied to this repo's paths, scripts, architecture, deploy steps, or conventions.
+- Project skills use the active project storage mode: central mode uses ~/.pi/agent/projects-memory/<project>/skills/, while repo-local mode uses <git-root>/.pi/skills/.
 - Prefer structured fields for create/update: when_to_use, procedure_steps, pitfalls, verification_steps. Use patch to improve a specific section of an existing skill, update for a full rewrite, and view to inspect existing skills before changing them.
 - Do not create skills for one-off task state, generic summaries, or overly file-specific notes that will create noisy future matches.
 
@@ -89,6 +95,8 @@ Persistent memory is available through memory tools. Do not assume memory has al
 Use memory_search when the current task may depend on durable context from previous sessions: user preferences, project conventions, prior decisions, known failures, corrections, insights, or tool quirks.
 
 Memory write targets: user for preferences/profile; memory for global notes and environment/tool facts; project for repo-specific conventions and workflows; failure for categorized lessons.
+
+Project memory storage follows config: default central mode uses ~/.pi/agent/projects-memory/<project>/, while repo-local mode uses <git-root>/.pi/ so project memory and project skills can travel with Git.
 
 memory_search filters: target searches user/global/failure memories; project filters project-scoped memories; category filters categorized failure/lesson memories only.
 
@@ -123,7 +131,7 @@ Do NOT save task progress, session outcomes, completed-work logs, or temporary T
 THREE TARGETS:
 - 'user': who the user is -- name, role, preferences, communication style, pet peeves
 - 'memory': your global notes -- environment facts, tool quirks, lessons learned (shared across all projects)
-- 'project': project-specific notes -- architecture decisions, API quirks, team norms, codebase conventions (scoped to current project)
+- 'project': project-specific notes -- architecture decisions, API quirks, team norms, codebase conventions (scoped to current project; stored in ~/.pi/agent/projects-memory/<project>/ by default, or <git-root>/.pi/ when projectMemoryMode is "repo-local")
 
 ACTIONS: add (new entry), replace (update existing -- old_text identifies it), remove (delete -- old_text identifies it).`;
 
