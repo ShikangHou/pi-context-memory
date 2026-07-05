@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { inspectKnowledgeIndex, summarizeKnowledgeInspection } from "../context/knowledge-index.js";
+import { inspectSkillsForGovernance, summarizeSkillGovernance } from "../context/skill-governance.js";
 import { resolveWorkspace } from "../workspace/index.js";
 import type { MemoryConfig } from "../types.js";
 
@@ -115,7 +116,11 @@ function workspaceRootFromContext(ctx: CommandContext): string {
 function checkWorkspaceSchema(workspaceJsonPath: string): string {
   const json = readJsonFile(workspaceJsonPath);
   if (!json) return "missing or unreadable";
-  return json.schemaVersion === CONTEXT_SCHEMA_VERSION ? "ok" : "schemaVersion mismatch";
+  const issues: string[] = [];
+  if (json.schemaVersion !== CONTEXT_SCHEMA_VERSION) issues.push("schemaVersion mismatch");
+  if (typeof json.id !== "string" || !json.id.trim()) issues.push("missing id");
+  if (typeof json.name !== "string" || !json.name.trim()) issues.push("missing name");
+  return issues.length === 0 ? "ok" : issues.join(", ");
 }
 
 function buildStatusLines(options: ContextCommandOptions, cwd?: string): string[] {
@@ -151,6 +156,10 @@ function buildDoctorLines(options: ContextCommandOptions, cwd?: string): string[
   const workspaceKnowledge = workspace && workspaceKnowledgeIndex
     ? inspectKnowledgeIndex(workspaceKnowledgeIndex, workspace.rootDir)
     : null;
+  const skillInspection = inspectSkillsForGovernance([
+    { dir: path.join(options.globalDir, "skills"), scope: "global" },
+    ...(workspacePiDir ? [{ dir: path.join(workspacePiDir, "skills"), scope: "workspace" } as const] : []),
+  ]);
 
   const lines = ["Context Doctor (read-only)"];
   lines.push(`Runtime/tool availability: ok`);
@@ -171,8 +180,7 @@ function buildDoctorLines(options: ContextCommandOptions, cwd?: string): string[
   lines.push("Broken Knowledge paths: checked");
   lines.push("Duplicate Source of Truth: checked");
   lines.push("Stale documents: checked");
-  lines.push("Similar Skills: not checked in this stage");
-  lines.push("Skill verification: not checked in this stage");
+  lines.push(...summarizeSkillGovernance(skillInspection));
   lines.push("No fixes were applied.");
   return lines;
 }

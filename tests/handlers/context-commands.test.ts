@@ -160,4 +160,46 @@ describe("registerContextCommands", () => {
     assert.match(notifications[0].message, /Workspace Knowledge Index broken paths: docs\/A\.md, docs\/missing\.md/);
     assert.match(notifications[0].message, /Workspace Knowledge Index duplicate Source of Truth: title:architecture/);
   });
+
+  it("reports workspace schema and Skill governance issues without fixing them", async () => {
+    const root = makeTempDir();
+    const agentRoot = path.join(root, "agent");
+    const workspaceRoot = path.join(root, "repo");
+    const workspacePi = path.join(workspaceRoot, ".pi");
+    fs.mkdirSync(path.join(workspaceRoot, ".git"), { recursive: true });
+    fs.mkdirSync(path.join(workspacePi, "skills", "build"), { recursive: true });
+    fs.writeFileSync(path.join(workspacePi, "workspace.json"), JSON.stringify({ schemaVersion: 999 }), "utf-8");
+    fs.writeFileSync(path.join(workspacePi, "skills", "build", "SKILL.md"), [
+      "---",
+      "name: build",
+      "---",
+      "",
+      "# Build",
+    ].join("\n"), "utf-8");
+    fs.mkdirSync(path.join(agentRoot, "pi-hermes-memory", "skills", "build"), { recursive: true });
+    fs.writeFileSync(path.join(agentRoot, "pi-hermes-memory", "skills", "build", "SKILL.md"), [
+      "---",
+      "name: build",
+      "description: Global build",
+      "---",
+      "",
+      "# Build",
+    ].join("\n"), "utf-8");
+
+    const { pi, commands } = makePi();
+    registerContextCommands(pi as any, {
+      agentRoot,
+      globalDir: path.join(agentRoot, "pi-hermes-memory"),
+      config: { projectMemoryDirName: ".pi", projectMemoryMode: "repo-local" },
+    });
+
+    const { ctx, notifications } = makeCtx(workspaceRoot);
+    await commands.get("context-doctor").handler({}, ctx);
+
+    assert.match(notifications[0].message, /Workspace schemaVersion: schemaVersion mismatch, missing id, missing name/);
+    assert.match(notifications[0].message, /Skill verification: issues \(2 skills\)/);
+    assert.match(notifications[0].message, /Invalid Skills:/);
+    assert.match(notifications[0].message, /Similar Skills: duplicate names build/);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(workspacePi, "workspace.json"), "utf-8")).schemaVersion, 999);
+  });
 });
