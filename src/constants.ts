@@ -96,7 +96,7 @@ export const COMBINED_REVIEW_PROMPT = `Review the conversation above and conside
 
 For failures, include: what was tried, why it failed, what error occurred, and what worked instead.
 
-**Skills**: Do NOT create or modify skills in this background review. Procedural skills are managed explicitly by the main agent through the skill_manage tool during normal work, not by this review subprocess.
+Background boundary: this review may only save compact Memory entries. Do NOT create, edit, or delete Knowledge documents or Skills in this background review. Knowledge and Skills are managed explicitly by the main agent during normal foreground work.
 
 Only act if there's something genuinely worth saving. If nothing stands out, just say 'Nothing to save.' and stop.`;
 
@@ -107,7 +107,7 @@ Review these aspects:
 - **Memory**: User persona, preferences, expectations about how the agent should behave, work style.
 - **Failures & Corrections**: What failed, user corrections, insights, conventions, tool quirks.
 
-Do NOT create or modify skills. Only save genuinely durable facts — not task progress, session outcomes, or temporary state.
+Background boundary: only emit Memory operations. Do NOT create, edit, or delete Knowledge documents or Skills. Only save genuinely durable facts — not task progress, session outcomes, or temporary state.
 
 Respond with JSON only (no markdown fences):
 {
@@ -131,7 +131,7 @@ Operation fields:
 If nothing is worth saving, return {"operations":[]}.`;
 
 // ─── Flush prompt (ported from flush_memories() in run_agent.py ~L7379) ───
-export const FLUSH_PROMPT = `[System: The session is being compressed. Save anything worth remembering — prioritize user preferences, corrections, and recurring patterns over task-specific details.]`;
+export const FLUSH_PROMPT = `[System: The session is being compressed. Save compact Memory entries only. Do not create or modify Knowledge documents or Skills. Prioritize user preferences, corrections, and recurring patterns over task-specific details.]`;
 
 // ─── Auto-consolidation prompt ───
 export const CONSOLIDATION_PROMPT = `The memory is at capacity. Review the current entries and consolidate them:
@@ -210,14 +210,14 @@ Priority:
 2. Wrong assumption you made
 3. Environment fact you got wrong
 
-Use the memory tool to save. If this contradicts an existing entry, use 'replace' to update it.`;
+Use the memory tool to save compact Memory entries only. Do not create or modify Knowledge documents or Skills. If this contradicts an existing entry, use 'replace' to update it.`;
 
 // ─── Skill tool description ───
 export const SKILL_TOOL_DESCRIPTION = `Manage reusable procedures and patterns as Pi-native skills that survive across sessions. Skills are procedural memory — they capture HOW to do something, not just what happened.
 
 This tool is intentionally named 'skill_manage' because it manages saved procedural skills; it is not a generic skill-discovery tool.
 
-Use create for a new skill, patch for a targeted section update, update for a full rewrite, view to inspect existing skills, and delete to remove obsolete ones. When creating a skill, scope is required: use global for portable workflows and project for procedures tied to this repo's paths, scripts, architecture, deploy steps, or conventions.
+Use create for a new skill, patch for a targeted section update, update for a full rewrite, view to inspect existing skills, and delete to remove obsolete ones. When creating a skill, scope is required: use global for portable workflows and project for Workspace-scoped procedures tied to this repo's paths, scripts, architecture, deploy steps, or conventions. The project scope name is a legacy compatibility alias for Workspace skills.
 
 WHEN TO CREATE A SKILL:
 - After completing a complex task that required trial and error or multiple tool calls

@@ -226,6 +226,7 @@ describe("setupSessionFlush", () => {
     // The final logical arg is the flush message containing the prompt + conversation
     const message = args[args.length - 1];
     assert.ok(message.includes(FLUSH_PROMPT), "flush message should contain FLUSH_PROMPT");
+    assert.match(message, /Do not create or modify Knowledge documents or Skills/);
     assert.ok(message.includes("[USER]"), "flush message should contain [USER] prefix");
     assert.ok(
       message.includes("[ASSISTANT]"),

@@ -203,7 +203,7 @@ describe("setupBackgroundReview", () => {
     assert.ok(cmdArgs[0] === "-p", "should use -p flag");
     assert.ok(cmdArgs.includes("--no-session"), "should include --no-session");
     const prompt = reviewPrompt(0);
-    assert.match(prompt, /Do NOT create or modify skills in this background review/i);
+    assert.match(prompt, /Do NOT create, edit, or delete Knowledge documents or Skills/i);
     assert.doesNotMatch(prompt, /save a reusable procedure using the skill tool/i);
   });
 
@@ -759,7 +759,9 @@ describe("setupBackgroundReview", () => {
     const directPrompt = buildDirectReviewUserPrompt(input);
 
     assert.match(subprocessPrompt, /save using the memory tool/i);
+    assert.match(subprocessPrompt, /Do NOT create, edit, or delete Knowledge documents or Skills/i);
     assert.match(directPrompt, /Conversation to Review/);
+    assert.doesNotMatch(directPrompt, /Knowledge documents or Skills/);
     assert.doesNotMatch(directPrompt, /save using the memory tool/i);
     assert.ok(subprocessPrompt.includes("uses pnpm"));
     assert.ok(directPrompt.includes("monorepo layout"));

@@ -331,6 +331,10 @@ describe("setupCorrectionDetector handler", () => {
     await settle();
 
     assert.ok(execCalls.length >= 1, "pi.exec should be called on correction");
+    const args = logicalChildArgs(execCalls[0]);
+    const prompt = args[args.length - 1];
+    assert.match(prompt, /save compact Memory entries only/i);
+    assert.match(prompt, /Do not create or modify Knowledge documents or Skills/i);
   });
 
   it("passes child LLM override args and defaults thinking to off when only a model override is set", async () => {
