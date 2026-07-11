@@ -6,6 +6,7 @@ import { inspectKnowledgeIndex, summarizeKnowledgeInspection } from "../context/
 import { inspectSkillsForGovernance, summarizeSkillGovernance } from "../context/skill-governance.js";
 import { resolveWorkspace } from "../workspace/index.js";
 import type { MemoryConfig } from "../types.js";
+import { migrateWorkspaceLayout, rollbackWorkspaceLayout, type WorkspaceLayoutMigrationReport } from "../workspace/workspace-layout-migration.js";
 
 export const CONTEXT_SCHEMA_VERSION = 1;
 
@@ -128,7 +129,7 @@ function buildStatusLines(options: ContextCommandOptions, cwd?: string): string[
   const workspace = resolveWorkspace({ cwd });
   const workspacePiDir = workspace ? path.join(workspace.rootDir, options.config.projectMemoryDirName ?? ".pi") : null;
   const globalKnowledgeIndex = globalKnowledgeIndexPath(options.agentRoot);
-  const workspaceKnowledgeIndex = workspacePiDir ? path.join(workspacePiDir, "knowledge", "INDEX.md") : null;
+  const workspaceKnowledgeIndex = workspacePiDir ? path.join(workspacePiDir, "shared", "knowledge", "INDEX.md") : null;
 
   return [
     "Context Status",
@@ -139,9 +140,9 @@ function buildStatusLines(options: ContextCommandOptions, cwd?: string): string[
     `Global Memory Path: ${options.globalDir}`,
     `Global Knowledge Index: ${globalKnowledgeIndex}`,
     `Global Skill Path: ${path.join(options.globalDir, "skills")}`,
-    `Workspace Memory Path: ${workspacePiDir ?? "none"}`,
+    `Workspace Memory Path: ${workspacePiDir ? path.join(workspacePiDir, "shared") : "none"}`,
     `Workspace Knowledge Index: ${workspaceKnowledgeIndex ?? "none"}`,
-    `Workspace Skill Path: ${workspacePiDir ? path.join(workspacePiDir, "skills") : "none"}`,
+    `Workspace Skill Path: ${workspacePiDir ? path.join(workspacePiDir, "shared", "skills") : "none"}`,
     `Session Search: available`,
   ];
 }
@@ -150,7 +151,7 @@ function buildDoctorLines(options: ContextCommandOptions, cwd?: string): string[
   const workspace = resolveWorkspace({ cwd });
   const workspacePiDir = workspace ? path.join(workspace.rootDir, options.config.projectMemoryDirName ?? ".pi") : null;
   const globalKnowledgeIndex = globalKnowledgeIndexPath(options.agentRoot);
-  const workspaceKnowledgeIndex = workspacePiDir ? path.join(workspacePiDir, "knowledge", "INDEX.md") : null;
+  const workspaceKnowledgeIndex = workspacePiDir ? path.join(workspacePiDir, "shared", "knowledge", "INDEX.md") : null;
   const workspaceJsonPath = workspacePiDir ? path.join(workspacePiDir, "workspace.json") : null;
   const legacyMemoryDir = path.join(path.dirname(options.agentRoot), "memory");
   const globalKnowledge = inspectKnowledgeIndex(globalKnowledgeIndex, path.dirname(options.agentRoot));
@@ -159,7 +160,7 @@ function buildDoctorLines(options: ContextCommandOptions, cwd?: string): string[
     : null;
   const skillInspection = inspectSkillsForGovernance([
     { dir: path.join(options.globalDir, "skills"), scope: "global" },
-    ...(workspacePiDir ? [{ dir: path.join(workspacePiDir, "skills"), scope: "workspace" } as const] : []),
+    ...(workspacePiDir ? [{ dir: path.join(workspacePiDir, "shared", "skills"), scope: "workspace" } as const] : []),
   ]);
 
   const lines = ["Context Doctor (read-only)"];
@@ -175,8 +176,8 @@ function buildDoctorLines(options: ContextCommandOptions, cwd?: string): string[
   }
   lines.push(`Global Memory Path: ${fs.existsSync(options.globalDir) ? "ok" : "missing"} ${options.globalDir}`);
   lines.push(`Global Skill Path: ${fs.existsSync(path.join(options.globalDir, "skills")) ? "ok" : "missing"} ${path.join(options.globalDir, "skills")}`);
-  lines.push(`Workspace Memory Path: ${workspacePiDir && fs.existsSync(workspacePiDir) ? "ok" : "missing"} ${workspacePiDir ?? "none"}`);
-  lines.push(`Workspace Skill Path: ${workspacePiDir && fs.existsSync(path.join(workspacePiDir, "skills")) ? "ok" : "missing"} ${workspacePiDir ? path.join(workspacePiDir, "skills") : "none"}`);
+  lines.push(`Workspace Memory Path: ${workspacePiDir && fs.existsSync(path.join(workspacePiDir, "shared")) ? "ok" : "missing"} ${workspacePiDir ? path.join(workspacePiDir, "shared") : "none"}`);
+  lines.push(`Workspace Skill Path: ${workspacePiDir && fs.existsSync(path.join(workspacePiDir, "shared", "skills")) ? "ok" : "missing"} ${workspacePiDir ? path.join(workspacePiDir, "shared", "skills") : "none"}`);
   lines.push(`Legacy ~/.pi/memory/: ${fs.existsSync(legacyMemoryDir) ? "present" : "absent"} ${legacyMemoryDir}`);
   lines.push("Broken Knowledge paths: checked");
   lines.push("Duplicate Source of Truth: checked");
@@ -187,6 +188,30 @@ function buildDoctorLines(options: ContextCommandOptions, cwd?: string): string[
 }
 
 export function registerContextCommands(pi: ExtensionAPI, options: ContextCommandOptions): void {
+  pi.registerCommand("context-migrate-workspace", {
+    description: "Copy and validate legacy .pi content into the v0.8 privacy layout",
+    handler: async (_args, ctx: CommandContext) => {
+      const root = workspaceRootFromContext(ctx);
+      const report = migrateWorkspaceLayout(root, options.config.projectMemoryDirName ?? ".pi");
+      notify(ctx, `Workspace migration: ${report.items.filter((item) => item.action === "copied").length} copied, ${report.items.filter((item) => item.action === "verified").length} verified, ${report.warnings.length} warnings. Old files were preserved.`, report.warnings.length ? "warning" : "info");
+    },
+  });
+
+  pi.registerCommand("context-rollback-workspace", {
+    description: "Roll back unchanged files copied by the most recent v0.8 Workspace migration",
+    handler: async (_args, ctx: CommandContext) => {
+      const root = workspaceRootFromContext(ctx);
+      const reportPath = path.join(root, options.config.projectMemoryDirName ?? ".pi", "runtime", "migration-report.json");
+      const report = readJsonFile(reportPath) as unknown as WorkspaceLayoutMigrationReport | null;
+      if (!report || report.version !== 1 || report.workspaceRoot !== path.resolve(root) || !Array.isArray(report.items)) {
+        notify(ctx, `No valid migration report found at ${reportPath}`, "warning");
+        return;
+      }
+      const result = rollbackWorkspaceLayout(report);
+      notify(ctx, `Workspace rollback: ${result.removed.length} unchanged copies removed, ${result.preserved.length} modified files preserved. Legacy sources were never deleted.`, result.preserved.length ? "warning" : "info");
+    },
+  });
+
   pi.registerCommand("context-init-global", {
     description: "Initialize the Global Knowledge INDEX without overwriting existing content",
     handler: async (_args, ctx: CommandContext) => {
@@ -204,8 +229,8 @@ export function registerContextCommands(pi: ExtensionAPI, options: ContextComman
       const workspaceName = path.basename(workspaceRoot);
       const writes = [
         ensureFile(path.join(piDir, "workspace.json"), workspaceMarkerContent(workspaceRoot)),
-        ensureFile(path.join(piDir, "WORKSPACE.md"), workspaceMarkdownTemplate(workspaceName)),
-        ensureFile(path.join(piDir, "knowledge", "INDEX.md"), knowledgeIndexTemplate("workspace")),
+        ensureFile(path.join(piDir, "shared", "WORKSPACE.md"), workspaceMarkdownTemplate(workspaceName)),
+        ensureFile(path.join(piDir, "shared", "knowledge", "INDEX.md"), knowledgeIndexTemplate("workspace")),
       ];
       notify(ctx, formatWriteResults("Workspace context bootstrap", writes), "info");
     },

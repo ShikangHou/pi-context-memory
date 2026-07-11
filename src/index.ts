@@ -61,6 +61,8 @@ import { registerQuarantineCommands } from "./handlers/quarantine-command.js";
 import { registerMemoryDoctorCommands } from "./handlers/memory-doctor.js";
 import { setupObservationCheckpoints } from "./handlers/observation-checkpoint.js";
 import { setupAutomaticRecall } from "./handlers/automatic-recall.js";
+import { migrateWorkspaceLayout } from "./workspace/workspace-layout-migration.js";
+import { resolveWorkspace } from "./workspace/index.js";
 
 type ProjectDiscoveryConfig = Pick<MemoryConfig, "projectMemoryMode" | "projectsMemoryDir" | "projectMemoryDirName">;
 
@@ -116,6 +118,10 @@ export default function (pi: ExtensionAPI) {
 
   const quarantine = new MemoryQuarantine(path.join(globalDir, "runtime", "quarantine"));
   const store = new MemoryStore({ ...config, memoryDir: globalDir }, quarantine);
+  const initialWorkspace = resolveWorkspace({ cwd: process.cwd() });
+  if (config.projectMemoryMode !== "central" && initialWorkspace) {
+    try { migrateWorkspaceLayout(initialWorkspace.rootDir, config.projectMemoryDirName); } catch { /* startup remains available */ }
+  }
   const project = detectProject(config);
   const projectName = project.name ?? "";
   const skillStore = new SkillStore({

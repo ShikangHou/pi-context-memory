@@ -85,7 +85,7 @@ export function detectProject(
     return {
       name: workspace.displayName,
       rootDir: workspace.rootDir,
-      memoryDir: path.join(workspace.rootDir, options.projectMemoryDirName),
+      memoryDir: path.join(workspace.rootDir, options.projectMemoryDirName, "shared"),
       workspaceId: workspace.workspaceId,
     };
   }

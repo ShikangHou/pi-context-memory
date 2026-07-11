@@ -2,6 +2,8 @@ import * as path from "node:path";
 import { detectProject, type ProjectInfo } from "../project.js";
 import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryConfig } from "../types.js";
+import { resolveWorkspace } from "./resolve-workspace.js";
+import { migrateWorkspaceLayout } from "./workspace-layout-migration.js";
 
 export interface ActiveWorkspaceContext {
   id: string;
@@ -32,6 +34,12 @@ export class WorkspaceContextProvider {
   }
 
   async refresh(cwd?: string): Promise<ActiveWorkspaceContext | null> {
+    if (this.config.projectMemoryMode !== "central") {
+      const workspace = resolveWorkspace({ cwd });
+      if (workspace) {
+        try { migrateWorkspaceLayout(workspace.rootDir, this.config.projectMemoryDirName); } catch { /* context remains usable */ }
+      }
+    }
     const project = detectProject(this.config, cwd);
     if (!project.memoryDir || !project.workspaceId || !project.name) {
       this.active = null;

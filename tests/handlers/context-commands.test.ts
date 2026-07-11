@@ -49,7 +49,7 @@ describe("registerContextCommands", () => {
 
     assert.deepStrictEqual(
       Array.from(commands.keys()).sort(),
-      ["context-doctor", "context-init-global", "context-init-workspace", "context-status"],
+      ["context-doctor", "context-init-global", "context-init-workspace", "context-migrate-workspace", "context-rollback-workspace", "context-status"],
     );
   });
 
@@ -93,8 +93,8 @@ describe("registerContextCommands", () => {
     await commands.get("context-init-workspace").handler({}, ctx);
 
     const markerPath = path.join(workspaceRoot, ".pi", "workspace.json");
-    const workspacePath = path.join(workspaceRoot, ".pi", "WORKSPACE.md");
-    const indexPath = path.join(workspaceRoot, ".pi", "knowledge", "INDEX.md");
+    const workspacePath = path.join(workspaceRoot, ".pi", "shared", "WORKSPACE.md");
+    const indexPath = path.join(workspaceRoot, ".pi", "shared", "knowledge", "INDEX.md");
 
     assert.ok(fs.existsSync(markerPath));
     assert.ok(fs.existsSync(workspacePath));
@@ -139,8 +139,8 @@ describe("registerContextCommands", () => {
     const agentRoot = path.join(root, "agent");
     const workspaceRoot = path.join(root, "repo");
     fs.mkdirSync(path.join(workspaceRoot, ".git"), { recursive: true });
-    fs.mkdirSync(path.join(workspaceRoot, ".pi", "knowledge"), { recursive: true });
-    fs.writeFileSync(path.join(workspaceRoot, ".pi", "knowledge", "INDEX.md"), [
+    fs.mkdirSync(path.join(workspaceRoot, ".pi", "shared", "knowledge"), { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, ".pi", "shared", "knowledge", "INDEX.md"), [
       "| Title | Path | Purpose | When to Read | Status | Last Reviewed | Supersedes | Superseded By |",
       "|---|---|---|---|---|---|---|---|",
       "| Architecture | docs/A.md | A | A | active | 2026-07-05 | | |",
@@ -167,9 +167,9 @@ describe("registerContextCommands", () => {
     const workspaceRoot = path.join(root, "repo");
     const workspacePi = path.join(workspaceRoot, ".pi");
     fs.mkdirSync(path.join(workspaceRoot, ".git"), { recursive: true });
-    fs.mkdirSync(path.join(workspacePi, "skills", "build"), { recursive: true });
+    fs.mkdirSync(path.join(workspacePi, "shared", "skills", "build"), { recursive: true });
     fs.writeFileSync(path.join(workspacePi, "workspace.json"), JSON.stringify({ schemaVersion: 999 }), "utf-8");
-    fs.writeFileSync(path.join(workspacePi, "skills", "build", "SKILL.md"), [
+    fs.writeFileSync(path.join(workspacePi, "shared", "skills", "build", "SKILL.md"), [
       "---",
       "name: build",
       "---",

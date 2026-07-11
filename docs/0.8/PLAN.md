@@ -575,6 +575,8 @@ Do not display synchronization time as "Last used".
 
 ### Epic 6.1: Repo-Local Privacy Boundary
 
+Status: [x] copy-first validated migration, report, repeatability, preserved legacy files, shared/runtime switching, and explicit hash-safe rollback implemented.
+
 Recommended layout:
 
 ```text
@@ -612,6 +614,8 @@ Migration must:
 
 ### Epic 6.2: Evaluation Suite
 
+Status: [~] required regression scenarios are automated and local results are recorded; remote cross-platform verification is in progress.
+
 Required scenarios:
 
 1. Two same-named Workspaces.
@@ -641,18 +645,18 @@ Metrics:
 
 ### Epic 6.3: Release
 
-- [ ] `npm run check`.
-- [ ] Full test suite.
-- [ ] Native SQLite installation smoke test.
+- [x] `npm run check`.
+- [x] Full test suite.
+- [x] Native SQLite installation smoke test.
 - [ ] macOS/Linux/Windows CI.
 - [ ] Node version matrix.
-- [ ] Migration dry run.
-- [ ] README update.
-- [ ] Security documentation update.
-- [ ] Configuration reference update.
-- [ ] Changelog.
-- [ ] Version bump.
-- [ ] Release candidate.
+- [x] Migration dry run.
+- [x] README update.
+- [x] Security documentation update.
+- [x] Configuration reference update.
+- [x] Changelog.
+- [x] Version bump.
+- [x] Release candidate.
 - [ ] Stable release.
 
 ---
