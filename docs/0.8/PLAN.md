@@ -379,6 +379,8 @@ This phase continues v0.7 Epics 2-3.
 
 ### Epic 4.1: Deterministic Memory Router
 
+Status: [x] deterministic signal router and skip reasons implemented without LLM calls.
+
 Add:
 
 ```text
@@ -405,6 +407,8 @@ The first implementation must be heuristic and must not call an LLM.
 
 ### Epic 4.2: Unified Candidate Ranking
 
+Status: [x] scope-safe transparent scoring and lifecycle filtering implemented.
+
 Use a transparent score:
 
 ```text
@@ -430,6 +434,8 @@ Priority order:
 Merge Global and Workspace candidates before sorting. Global results must not consume the entire limit before Workspace results are considered.
 
 ### Epic 4.3: Retrieval Budget
+
+Status: [x] stable-ID deduplication, Global/Workspace interleaving, truncation, and hard character/token caps implemented.
 
 Configuration:
 
@@ -466,11 +472,11 @@ Output:
 
 ### Acceptance Criteria
 
-- Current-Workspace results cannot be displaced entirely by Global results.
-- Every recall respects character and token budgets.
-- Wrong-Workspace memories never become candidates.
-- Relevant corrections and failures outrank ordinary old memories.
-- The router returns `skip` when memory cannot help.
+- [x] Current-Workspace results cannot be displaced entirely by Global results.
+- [x] Every recall respects character and token budgets.
+- [x] Wrong-Workspace memories never become candidates.
+- [x] Relevant corrections and failures outrank ordinary old memories.
+- [x] The router returns `skip` when memory cannot help.
 
 ---
 

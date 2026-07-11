@@ -86,6 +86,14 @@ export interface MemoryConfig {
   nudgeToolCalls: number;
   /** Maximum time in milliseconds for auto-consolidation to complete. Default: 60000 */
   consolidationTimeoutMs: number;
+  /** Maximum automatically ranked candidates. Default: 6 */
+  autoRecallTopK?: number;
+  /** Hard character cap including the retrieval envelope. Default: 6000 */
+  autoRecallBudgetChars?: number;
+  /** Per-entry character cap. Default: 1500 */
+  autoRecallMaxEntryChars?: number;
+  /** Hard estimated-token cap. Default: 1500 */
+  autoRecallMaxTokens?: number;
 }
 
 export type MemoryCategory =
