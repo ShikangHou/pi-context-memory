@@ -7,6 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
 import { resolveMemoryPolicyPrompt } from "../prompt-context.js";
 import type { MemoryConfig } from "../types.js";
+import type { ActiveWorkspaceContext } from "../workspace/workspace-context-provider.js";
 
 export function registerPreviewContextCommand(
   pi: ExtensionAPI,
@@ -14,10 +15,16 @@ export function registerPreviewContextCommand(
   projectStore: MemoryStore | null,
   projectName: string,
   config: Pick<MemoryConfig, "memoryMode" | "memoryPolicyStyle" | "memoryPolicyCustomText"> = { memoryMode: "policy-only" },
+  resolveWorkspaceContext?: (cwd?: string) => Promise<ActiveWorkspaceContext | null>,
 ): void {
   pi.registerCommand("memory-preview-context", {
     description: "Preview the memory policy or legacy memory context blocks",
     handler: async (_args, ctx) => {
+      const dynamicWorkspace = resolveWorkspaceContext
+        ? await resolveWorkspaceContext(ctx.cwd)
+        : undefined;
+      const activeProjectStore = resolveWorkspaceContext ? dynamicWorkspace?.store ?? null : projectStore;
+      const activeProjectName = resolveWorkspaceContext ? dynamicWorkspace?.displayName ?? "" : projectName;
       if (config.memoryMode === "policy-only") {
         const policyPrompt = resolveMemoryPolicyPrompt(config);
         const lines: string[] = [];
@@ -45,7 +52,7 @@ export function registerPreviewContextCommand(
       }
 
       const memoryBlock = store.formatForSystemPrompt();
-      const projectBlock = projectStore ? projectStore.formatProjectBlock(projectName) : "";
+      const projectBlock = activeProjectStore ? activeProjectStore.formatProjectBlock(activeProjectName) : "";
 
       const lines: string[] = [];
       lines.push("");
@@ -68,7 +75,7 @@ export function registerPreviewContextCommand(
 
       if (projectBlock) {
         blockCount++;
-        lines.push(`  ── PROJECT MEMORY (${projectName}) ─────────────────────────`);
+        lines.push(`  ── PROJECT MEMORY (${activeProjectName}) ─────────────────────────`);
         lines.push(projectBlock);
         lines.push("");
       }

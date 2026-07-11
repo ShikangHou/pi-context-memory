@@ -290,6 +290,45 @@ describe("registerMemoryTool", () => {
     assert.strictEqual(scoped[0].workspaceName, 'repo');
   });
 
+  it('resolves Workspace context from tool-call cwd instead of captured startup state', async () => {
+    let capturedResult: any;
+    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as any;
+    const writes: string[] = [];
+    const makeStore = (label: string) => ({
+      add: async () => {
+        writes.push(label);
+        return { success: true, entries: [`${label} entry`], entry_count: 1 };
+      },
+      getMemoryEntries: () => [],
+    }) as unknown as MemoryStore;
+    const firstStore = makeStore('first');
+    const secondStore = makeStore('second');
+
+    registerMemoryTool(
+      mockPi,
+      {} as MemoryStore,
+      firstStore,
+      dbManager,
+      'startup',
+      'ws_startup',
+      async (cwd) => cwd === '/work/second'
+        ? { id: 'ws_second', displayName: 'second', rootDir: '/work/second', memoryDir: '/work/second/.pi', skillsDir: '/work/second/.pi/skills', store: secondStore }
+        : { id: 'ws_first', displayName: 'first', rootDir: '/work/first', memoryDir: '/work/first/.pi', skillsDir: '/work/first/.pi/skills', store: firstStore },
+    );
+
+    await capturedResult.execute(
+      'tc-1',
+      { action: 'add', scope: 'workspace', target: 'memory', content: 'dynamic entry' },
+      undefined,
+      undefined,
+      { cwd: '/work/second' },
+    );
+
+    assert.deepStrictEqual(writes, ['second']);
+    assert.strictEqual(getMemories(dbManager, { workspaceId: 'ws_second' }).length, 1);
+    assert.strictEqual(getMemories(dbManager, { workspaceId: 'ws_startup' }).length, 0);
+  });
+
   it("replaces conflicting package-manager memory instead of appending", async () => {
     let capturedResult: any;
     const mockPi = {

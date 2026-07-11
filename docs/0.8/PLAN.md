@@ -685,7 +685,7 @@ Metrics:
 Implement in this order:
 
 1. [x] Update the obsolete `AGENTS.md` and roadmap.
-2. [~] Add `workspaceId` to `ProjectInfo` or replace it with `ActiveWorkspace` (identity derivation, `ProjectInfo` exposure, and current runtime consumers complete; dynamic context provider remains).
+2. [x] Add stable Workspace identity and `WorkspaceContextProvider`; refresh Memory, Skills, Search, Review, Correction, Preview, and Consolidation from Pi-provided cwd instead of initialization-time names.
 3. [x] Move SQLite isolation to stable Workspace IDs for current writes/search while retaining the legacy `project` display field for one compatibility cycle.
 4. [x] Fix active repo-local Markdown backfill with stable Workspace identity.
 5. Add validation and quarantine to every Markdown import path.

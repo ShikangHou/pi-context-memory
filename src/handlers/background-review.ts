@@ -15,11 +15,13 @@ import type { MemoryConfig } from "../types.js";
 import { applyRecentMessageLimit, collectMessageParts } from "./message-parts.js";
 import { execChildPrompt } from "./pi-child-process.js";
 import { runDirectBackgroundReview, type DirectReviewResult } from "./review-memory-ops.js";
+import type { ActiveWorkspaceContext } from "../workspace/workspace-context-provider.js";
 
 export interface BackgroundReviewOptions {
   dbManager?: DatabaseManager | null;
   projectName?: string | null;
   workspaceId?: string | null;
+  resolveWorkspaceContext?: (cwd?: string) => Promise<ActiveWorkspaceContext | null>;
   deps?: BackgroundReviewDeps;
 }
 
@@ -184,11 +186,17 @@ export function setupBackgroundReview(
     }
 
     const parts = applyRecentMessageLimit(allParts, config.reviewRecentMessages);
+    const dynamicWorkspace = options.resolveWorkspaceContext
+      ? await options.resolveWorkspaceContext(ctx.cwd)
+      : undefined;
+    const activeProjectStore = options.resolveWorkspaceContext ? dynamicWorkspace?.store ?? null : projectStore;
+    const activeProjectName = options.resolveWorkspaceContext ? dynamicWorkspace?.displayName ?? null : projectName;
+    const activeWorkspaceId = options.resolveWorkspaceContext ? dynamicWorkspace?.id ?? null : workspaceId;
     const promptInput: ReviewPromptInput = {
       parts,
       currentMemory: store.getMemoryEntries().join("\n§\n"),
       currentUser: store.getUserEntries().join("\n§\n"),
-      currentProject: projectStore ? projectStore.getMemoryEntries().join("\n§\n") : null,
+      currentProject: activeProjectStore ? activeProjectStore.getMemoryEntries().join("\n§\n") : null,
     };
 
     const subprocessPrompt = buildSubprocessReviewPrompt(promptInput);
@@ -209,11 +217,11 @@ export function setupBackgroundReview(
         const directResult = await runDirectReview(
           ctx as Pick<ExtensionContext, "model" | "modelRegistry">,
           store,
-          projectStore,
+          activeProjectStore,
           { userPrompt: directPrompt, config, timeoutMs: 120000 },
           dbManager,
-          projectName,
-          workspaceId,
+          activeProjectName,
+          activeWorkspaceId,
         );
 
         if (directResult.ok) {

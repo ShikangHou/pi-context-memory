@@ -24,6 +24,7 @@ import {
   ENTRY_DELIMITER,
 } from "../constants.js";
 import type { MemoryConfig } from "../types.js";
+import type { ActiveWorkspaceContext } from "../workspace/workspace-context-provider.js";
 import { getMessageText } from "../types.js";
 import { execChildPrompt } from "./pi-child-process.js";
 
@@ -130,6 +131,7 @@ export function setupCorrectionDetector(
   dbManager: DatabaseManager | null = null,
   projectName?: string | null,
   workspaceId?: string | null,
+  resolveWorkspaceContext?: (cwd?: string) => Promise<ActiveWorkspaceContext | null>,
 ): void {
   if (!config.correctionDetection) return;
 
@@ -163,6 +165,12 @@ export function setupCorrectionDetector(
     correctionInProgress = true;
 
     try {
+      const dynamicWorkspace = resolveWorkspaceContext
+        ? await resolveWorkspaceContext(ctx.cwd)
+        : undefined;
+      const activeProjectStore = resolveWorkspaceContext ? dynamicWorkspace?.store ?? null : projectStore;
+      const activeProjectName = resolveWorkspaceContext ? dynamicWorkspace?.displayName ?? null : projectName;
+      const activeWorkspaceId = resolveWorkspaceContext ? dynamicWorkspace?.id ?? null : workspaceId;
       // Build conversation snapshot
       const entries = ctx.sessionManager.getBranch();
       const parts: string[] = [];
@@ -181,7 +189,7 @@ export function setupCorrectionDetector(
 
       const currentMemory = store.getMemoryEntries().join(ENTRY_DELIMITER);
       const currentUser = store.getUserEntries().join(ENTRY_DELIMITER);
-      const currentProject = projectStore ? projectStore.getMemoryEntries().join(ENTRY_DELIMITER) : null;
+      const currentProject = activeProjectStore ? activeProjectStore.getMemoryEntries().join(ENTRY_DELIMITER) : null;
 
       const prompt = [
         CORRECTION_SAVE_PROMPT,
@@ -226,7 +234,7 @@ export function setupCorrectionDetector(
         if (correctionText) {
           const directive = extractCorrectionDirective(correctionText);
           const failureReason = "User corrected the agent";
-          const scopedProjectName = projectStore ? projectName?.trim() || null : null;
+          const scopedProjectName = activeProjectStore ? activeProjectName?.trim() || null : null;
           const addResult = await store.addFailure(directive, {
             category: "correction",
             failureReason,
@@ -243,7 +251,7 @@ export function setupCorrectionDetector(
                 }),
                 target: "failure",
                 project: scopedProjectName,
-                workspaceId: projectStore ? workspaceId?.trim() || undefined : null,
+                workspaceId: activeProjectStore ? activeWorkspaceId?.trim() || undefined : null,
                 workspaceName: scopedProjectName,
                 category: "correction",
                 failureReason,

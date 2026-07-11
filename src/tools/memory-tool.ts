@@ -19,6 +19,7 @@ import {
 import { MEMORY_TOOL_DESCRIPTION } from "../constants.js";
 import type { MemoryCategory, MemoryResult } from "../types.js";
 import { decideMemoryWrite } from "../context/write-time-consistency.js";
+import type { ActiveWorkspaceContext } from "../workspace/workspace-context-provider.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
   const warnings = [...(((result as any).warnings ?? []) as string[]), warning];
@@ -210,6 +211,7 @@ export function registerMemoryTool(
   dbManager: DatabaseManager | null = null,
   projectName?: string | null,
   workspaceId?: string | null,
+  resolveWorkspaceContext?: (cwd?: string) => Promise<ActiveWorkspaceContext | null>,
 ): void {
   pi.registerTool({
     name: "memory",
@@ -258,11 +260,17 @@ export function registerMemoryTool(
         category?: MemoryCategory;
         failure_reason?: string;
       };
-      const route = normalizeMemoryRoute(rawTarget, rawScope, projectName, workspaceId);
+      const dynamicWorkspace = resolveWorkspaceContext
+        ? await resolveWorkspaceContext((ctx as { cwd?: string } | undefined)?.cwd)
+        : undefined;
+      const activeProjectStore = resolveWorkspaceContext ? dynamicWorkspace?.store ?? null : projectStore;
+      const activeProjectName = resolveWorkspaceContext ? dynamicWorkspace?.displayName ?? null : projectName;
+      const activeWorkspaceId = resolveWorkspaceContext ? dynamicWorkspace?.id ?? null : workspaceId;
+      const route = normalizeMemoryRoute(rawTarget, rawScope, activeProjectName, activeWorkspaceId);
 
-      const activeStore = route.scope === "workspace" ? projectStore : store;
+      const activeStore = route.scope === "workspace" ? activeProjectStore : store;
 
-      if (route.scope === "workspace" && !projectStore) {
+      if (route.scope === "workspace" && !activeProjectStore) {
         return {
           content: [{ type: "text", text: JSON.stringify({ success: false, error: "Workspace memory is not available (no workspace detected)." }) }],
           details: {},

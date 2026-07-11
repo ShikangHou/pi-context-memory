@@ -7,7 +7,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { resolveProjectsRoot } from "./paths.js";
 import type { ProjectMemoryMode } from "./types.js";
-import { findGitRoot as findWorkspaceGitRoot, resolveWorkspace } from "./workspace/index.js";
+import { deriveWorkspaceId, findGitRoot as findWorkspaceGitRoot, resolveWorkspace } from "./workspace/resolve-workspace.js";
 
 export interface ProjectInfo {
   /** Project name (directory basename), or null if not in a project. */
@@ -99,6 +99,7 @@ export function detectProject(
     name,
     rootDir: null,
     memoryDir: path.join(resolveProjectsRoot(options.projectsMemoryDir), name),
+    workspaceId: resolveWorkspace({ cwd: resolved })?.workspaceId ?? deriveWorkspaceId(resolved),
   };
 }
 

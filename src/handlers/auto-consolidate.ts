@@ -11,6 +11,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
 import { CONSOLIDATION_PROMPT, ENTRY_DELIMITER } from "../constants.js";
 import type { ConsolidationResult, MemoryConfig } from "../types.js";
+import type { ActiveWorkspaceContext } from "../workspace/workspace-context-provider.js";
 import { execChildPrompt } from "./pi-child-process.js";
 
 type MemoryTarget = "memory" | "user" | "failure";
@@ -96,11 +97,17 @@ export function registerConsolidateCommand(
   projectStore: MemoryStore | null = null,
   projectName?: string | null,
   llmConfig: Pick<MemoryConfig, "llmModelOverride" | "llmThinkingOverride"> = {},
+  resolveWorkspaceContext?: (cwd?: string) => Promise<ActiveWorkspaceContext | null>,
 ): void {
   pi.registerCommand("memory-consolidate", {
     description: "Manually trigger memory consolidation to free up space",
     handler: async (_args, ctx) => {
       const manualTimeoutMs = Math.max(timeoutMs, 180000);
+      const dynamicWorkspace = resolveWorkspaceContext
+        ? await resolveWorkspaceContext(ctx.cwd)
+        : undefined;
+      const activeProjectStore = resolveWorkspaceContext ? dynamicWorkspace?.store ?? null : projectStore;
+      const activeProjectName = resolveWorkspaceContext ? dynamicWorkspace?.displayName ?? null : projectName;
       const results: string[] = [];
       const targets: Array<{
         label: string;
@@ -113,10 +120,10 @@ export function registerConsolidateCommand(
         { label: "failure", store, target: "failure", toolTarget: "failure" },
       ];
 
-      if (projectStore) {
+      if (activeProjectStore) {
         targets.push({
-          label: projectName ? `project:${projectName}` : "project",
-          store: projectStore,
+          label: activeProjectName ? `project:${activeProjectName}` : "project",
+          store: activeProjectStore,
           target: "memory",
           toolTarget: "project",
         });

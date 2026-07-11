@@ -105,4 +105,30 @@ describe('registerMemorySearchTool', () => {
     assert.match(result.content[0].text, /active Workspace ID is resolved from the Pi runtime/);
     dbManager.close();
   });
+
+  it('resolves the current Workspace ID from tool-call cwd', async () => {
+    const dbManager = makeDbManager();
+    syncMemoryEntry(dbManager, { content: 'first dynamic note', target: 'memory', project: 'repo', workspaceId: 'ws_first', workspaceName: 'repo' });
+    syncMemoryEntry(dbManager, { content: 'second dynamic note', target: 'memory', project: 'repo', workspaceId: 'ws_second', workspaceName: 'repo' });
+    let captured: any;
+    const mockPi = { registerTool: (def: any) => { captured = def; } } as any;
+    registerMemorySearchTool(
+      mockPi,
+      dbManager,
+      'ws_first',
+      async (cwd) => cwd === '/work/second' ? 'ws_second' : 'ws_first',
+    );
+
+    const result = await captured.execute(
+      'tc-1',
+      { query: 'dynamic note', scope: 'workspace' },
+      undefined,
+      undefined,
+      { cwd: '/work/second' },
+    );
+
+    assert.match(result.content[0].text, /second dynamic note/);
+    assert.doesNotMatch(result.content[0].text, /first dynamic note/);
+    dbManager.close();
+  });
 });

@@ -14,7 +14,12 @@ interface SearchResult {
 
 type SearchScope = 'global' | 'workspace' | 'all' | 'project';
 
-export function registerMemorySearchTool(pi: ExtensionAPI, dbManager: DatabaseManager, currentWorkspaceId?: string | null): void {
+export function registerMemorySearchTool(
+  pi: ExtensionAPI,
+  dbManager: DatabaseManager,
+  currentWorkspaceId?: string | null,
+  resolveWorkspaceId?: (cwd?: string) => Promise<string | null>,
+): void {
   pi.registerTool({
     name: 'memory_search',
     label: 'Memory Search',
@@ -41,7 +46,7 @@ Returns matching memory entries with workspace context and dates.`,
       category: Type.Optional(StringEnum(['failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk'] as const, { description: 'Filter by memory category.' })),
       limit: Type.Optional(Type.Number({ description: 'Maximum results to return (default: 10, max: 20).' })),
     }),
-    execute: async (_id: string, args: { query: string; scope?: SearchScope; project?: string; target?: string; category?: string; limit?: number }) => {
+    execute: async (_id: string, args: { query: string; scope?: SearchScope; project?: string; target?: string; category?: string; limit?: number }, _signal?: AbortSignal, _onUpdate?: unknown, ctx?: { cwd?: string }) => {
       const query = args.query;
       const target = args.target;
       const category = args.category as MemoryCategory | undefined;
@@ -67,7 +72,10 @@ Returns matching memory entries with workspace context and dates.`,
         return { content: [{ type: 'text' as const, text: result.message! }], details: result };
       }
 
-      const workspaceId = currentWorkspaceId?.trim() || null;
+      const resolvedWorkspaceId = resolveWorkspaceId
+        ? await resolveWorkspaceId(ctx?.cwd)
+        : currentWorkspaceId ?? null;
+      const workspaceId = resolvedWorkspaceId?.trim() || null;
       const searchOptions = { target, category, limit };
       const results = scope === 'global'
           ? searchMemories(dbManager, query, { ...searchOptions, project: null, limit })
