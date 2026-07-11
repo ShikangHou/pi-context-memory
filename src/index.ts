@@ -58,6 +58,7 @@ import type { MemoryConfig } from "./types.js";
 import { WorkspaceContextProvider } from "./workspace/workspace-context-provider.js";
 import { MemoryQuarantine } from "./security/memory-quarantine.js";
 import { registerQuarantineCommands } from "./handlers/quarantine-command.js";
+import { registerMemoryDoctorCommands } from "./handlers/memory-doctor.js";
 
 type ProjectDiscoveryConfig = Pick<MemoryConfig, "projectMemoryMode" | "projectsMemoryDir" | "projectMemoryDirName">;
 
@@ -315,6 +316,16 @@ export default function (pi: ExtensionAPI) {
   );
   registerContextCommands(pi, { agentRoot, globalDir, config });
   registerQuarantineCommands(pi, quarantine);
+  registerMemoryDoctorCommands(pi, dbManager, {
+    globalDir,
+    projectsMemoryDir: config.projectsMemoryDir,
+    agentRoot,
+    quarantine,
+    resolveActiveWorkspace: async (cwd) => {
+      const active = await workspaceContextProvider.refresh(cwd);
+      return active ? { id: active.id, displayName: active.displayName, memoryDir: active.memoryDir } : null;
+    },
+  });
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {

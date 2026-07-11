@@ -16,6 +16,7 @@ import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
 import { AGENT_ROOT } from '../paths.js';
 import { validateMemoryContent, type MemoryValidationOptions } from '../security/memory-validation.js';
 import type { MemoryQuarantine } from '../security/memory-quarantine.js';
+import { recordMemorySyncState } from '../store/memory-sync-state.js';
 
 export interface BackfillCounters {
   filesScanned: number;
@@ -145,6 +146,7 @@ export function syncMarkdownMemoriesToSqlite(
     counters.filesScanned++;
     const entries = readEntries(filePath);
     importEntries(dbManager, counters, entries, target, project, workspaceId, workspaceName, filePath, quarantine);
+    recordMemorySyncState(dbManager, filePath, Date.now());
   };
 
   importFile(globalMemoryFile, 'memory');

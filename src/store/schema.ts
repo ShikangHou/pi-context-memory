@@ -17,6 +17,16 @@ export const SCHEMA_SQL = `
     value TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS memory_sync_state (
+    source_file TEXT PRIMARY KEY,
+    size INTEGER NOT NULL,
+    mtime_ms INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    last_synced_at TEXT NOT NULL,
+    sqlite_revision INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
+  );
+
   -- Session metadata
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,

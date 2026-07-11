@@ -692,7 +692,7 @@ Implement in this order:
 6. [x] Serialize MemoryStore add/failure/replace/remove mutations with a FIFO queue.
 7. [x] Add 100-concurrent-write and cross-Workspace isolation tests.
 8. [x] Add stable Memory IDs to Markdown and SQLite, including legacy metadata parsing, source provenance, and ID-first synchronization.
-9. Implement Markdown/SQLite reconciliation and `/memory-doctor`.
+9. [x] Implement Markdown/SQLite reconciliation, sync-state tracking, `/memory-doctor`, and explicit `/memory-repair`.
 10. Only then begin Router, Ranking, and automatic retrieval.
 
 The first nine tasks establish the safety and consistency foundation required before automatic retrieval can be enabled.

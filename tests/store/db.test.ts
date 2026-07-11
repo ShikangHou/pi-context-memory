@@ -109,6 +109,7 @@ describe('DatabaseManager', () => {
       assert.ok(tableNames.includes('sessions'), 'sessions table missing');
       assert.ok(tableNames.includes('messages'), 'messages table missing');
       assert.ok(tableNames.includes('memories'), 'memories table missing');
+      assert.ok(tableNames.includes('memory_sync_state'), 'memory_sync_state table missing');
     });
 
     it('should create stable Workspace identity columns and indexes', () => {
