@@ -13,7 +13,8 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { scanContent } from "./content-scanner.js";
+import { validateMemoryContent, type MemoryValidationOptions } from "../security/memory-validation.js";
+import type { MemoryQuarantine } from "../security/memory-quarantine.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
   ENTRY_DELIMITER,
@@ -34,7 +35,18 @@ export class MemoryStore {
   private snapshot: MemorySnapshot = { memory: "", user: "" };
   private consolidator: ((target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>) | null = null;
 
-  constructor(private config: MemoryConfig) {}
+  constructor(private config: MemoryConfig, private readonly quarantine?: MemoryQuarantine) {}
+
+  private validateWrite(content: string, source: string): { content?: string; error?: string } {
+    const options: MemoryValidationOptions = { source, trustLevel: "trusted", phase: "write" };
+    const result = validateMemoryContent(content, options);
+    if (result.accepted && result.normalizedContent) return { content: result.normalizedContent };
+    if (result.action === "quarantine" && this.quarantine && result.normalizedContent) {
+      const entry = this.quarantine.add(result.normalizedContent, options, result);
+      return { error: `${result.reason} Quarantine ID: ${entry.id}.` };
+    }
+    return { error: result.reason ?? "Memory content was rejected by validation." };
+  }
 
   /**
    * Inject a consolidation function (avoids circular imports).
@@ -142,11 +154,10 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
   ): Promise<MemoryResult> {
-    content = content.trim();
-    if (!content) return { success: false, error: "Content cannot be empty." };
-
-    const scanError = scanContent(content);
-    if (scanError) return { success: false, error: scanError };
+    if (!content.trim()) return { success: false, error: "Content cannot be empty." };
+    const validation = this.validateWrite(content, `memory-store:${target}:add`);
+    if (validation.error) return { success: false, error: validation.error };
+    content = validation.content!;
 
     const entries = this.entriesFor(target);
     const limit = this.charLimit(target);
@@ -237,12 +248,11 @@ export class MemoryStore {
 
   async replace(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
     oldText = normalizeMemoryLookupText(oldText);
-    newContent = newContent.trim();
     if (!oldText) return { success: false, error: "old_text cannot be empty." };
-    if (!newContent) return { success: false, error: "new_content cannot be empty. Use 'remove' to delete entries." };
-
-    const scanError = scanContent(newContent);
-    if (scanError) return { success: false, error: scanError };
+    if (!newContent.trim()) return { success: false, error: "new_content cannot be empty. Use 'remove' to delete entries." };
+    const validation = this.validateWrite(newContent, `memory-store:${target}:replace`);
+    if (validation.error) return { success: false, error: validation.error };
+    newContent = validation.content!;
 
     const entries = this.entriesFor(target);
     // Match against stripped text (entries may have metadata comments)

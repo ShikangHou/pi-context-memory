@@ -56,30 +56,51 @@ const INVISIBLE_CHARS = new Set([
   '\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
 ]);
 
+export interface ContentInspection {
+  secretMatches: string[];
+  injectionMatches: string[];
+}
+
+/** Structured scanner result used by the unified validation boundary. */
+export function inspectContent(content: string): ContentInspection {
+  const injectionMatches: string[] = [];
+  const secretMatches: string[] = [];
+
+  for (const char of content) {
+    if (INVISIBLE_CHARS.has(char)) {
+      injectionMatches.push(`invisible_unicode_U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`);
+    }
+  }
+  for (const { pattern, id } of MEMORY_THREAT_PATTERNS) {
+    if (pattern.test(content)) injectionMatches.push(id);
+  }
+  for (const { pattern, id } of SECRET_PATTERNS) {
+    if (pattern.test(content)) secretMatches.push(id);
+  }
+
+  return {
+    secretMatches: [...new Set(secretMatches)],
+    injectionMatches: [...new Set(injectionMatches)],
+  };
+}
+
 /**
  * Scan memory content for injection/exfiltration patterns AND secret leaks.
  * Returns an error string if blocked, or null if content is safe.
  */
 export function scanContent(content: string): string | null {
-  // Check invisible unicode
-  for (const char of content) {
-    if (INVISIBLE_CHARS.has(char)) {
-      return `Blocked: content contains invisible unicode character U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')} (possible injection).`;
+  const inspection = inspectContent(content);
+  const firstInjection = inspection.injectionMatches[0];
+  if (firstInjection) {
+    if (firstInjection.startsWith('invisible_unicode_U+')) {
+      return `Blocked: content contains invisible unicode character ${firstInjection.slice('invisible_unicode_'.length)} (possible injection).`;
     }
+    return `Blocked: content matches threat pattern '${firstInjection}'. Memory entries may be surfaced through search or legacy prompt injection and must not contain injection or exfiltration payloads.`;
   }
-
-  // Check threat patterns
-  for (const { pattern, id } of MEMORY_THREAT_PATTERNS) {
-    if (pattern.test(content)) {
-      return `Blocked: content matches threat pattern '${id}'. Memory entries may be surfaced through search or legacy prompt injection and must not contain injection or exfiltration payloads.`;
-    }
-  }
-
-  // Check secret patterns
-  for (const { pattern, id, severity } of SECRET_PATTERNS) {
-    if (pattern.test(content)) {
-      return `Blocked: content looks like a ${severity}-severity credential or secret ('${id}'). Never persist API keys, tokens, or passwords to memory. Use an .env file or secrets manager instead.`;
-    }
+  const firstSecret = inspection.secretMatches[0];
+  if (firstSecret) {
+    const severity = SECRET_PATTERNS.find(({ id }) => id === firstSecret)?.severity ?? 'high';
+    return `Blocked: content looks like a ${severity}-severity credential or secret ('${firstSecret}'). Never persist API keys, tokens, or passwords to memory. Use an .env file or secrets manager instead.`;
   }
 
   return null;

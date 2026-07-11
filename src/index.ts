@@ -56,6 +56,8 @@ import { migrateExtensionRoot } from "./extension-root-migration.js";
 import { AGENT_ROOT } from "./paths.js";
 import type { MemoryConfig } from "./types.js";
 import { WorkspaceContextProvider } from "./workspace/workspace-context-provider.js";
+import { MemoryQuarantine } from "./security/memory-quarantine.js";
+import { registerQuarantineCommands } from "./handlers/quarantine-command.js";
 
 type ProjectDiscoveryConfig = Pick<MemoryConfig, "projectMemoryMode" | "projectsMemoryDir" | "projectMemoryDirName">;
 
@@ -109,7 +111,8 @@ export default function (pi: ExtensionAPI) {
   const shouldMigrateExtensionRoot = !configuredMemoryDir || pointsToLegacyMemoryDir;
   let extensionRootMigrated = false;
 
-  const store = new MemoryStore({ ...config, memoryDir: globalDir });
+  const quarantine = new MemoryQuarantine(path.join(globalDir, "runtime", "quarantine"));
+  const store = new MemoryStore({ ...config, memoryDir: globalDir }, quarantine);
   const project = detectProject(config);
   const projectName = project.name ?? "";
   const skillStore = new SkillStore({
@@ -145,6 +148,7 @@ export default function (pi: ExtensionAPI) {
       project.memoryDir && project.workspaceId && project.name
         ? { id: project.workspaceId, name: project.name, memoryDir: project.memoryDir }
         : null,
+      quarantine,
     );
   } catch {
     // Best-effort only: failed SQLite backfill should not block extension startup.
@@ -156,9 +160,9 @@ export default function (pi: ExtensionAPI) {
   const projectConfig = project.memoryDir
     ? { ...config, memoryCharLimit: config.projectCharLimit, memoryDir: project.memoryDir }
     : { ...config, memoryDir: undefined };
-  const projectStore = project.memoryDir ? new MemoryStore(projectConfig) : null;
+  const projectStore = project.memoryDir ? new MemoryStore(projectConfig, quarantine) : null;
   const workspaceContextProvider = new WorkspaceContextProvider(config, (storeConfig) => {
-    const dynamicStore = new MemoryStore(storeConfig);
+    const dynamicStore = new MemoryStore(storeConfig, quarantine);
     dynamicStore.setConsolidator(async (target, signal) => {
       const toolTarget = target === "memory" ? "project" : target;
       return triggerConsolidation(pi, dynamicStore, target, signal, config.consolidationTimeoutMs, toolTarget, config);
@@ -299,6 +303,7 @@ export default function (pi: ExtensionAPI) {
     project.memoryDir && project.workspaceId && project.name
       ? { id: project.workspaceId, name: project.name, memoryDir: project.memoryDir }
       : null,
+    quarantine,
   );
   registerPreviewContextCommand(
     pi,
@@ -309,6 +314,7 @@ export default function (pi: ExtensionAPI) {
     (cwd) => workspaceContextProvider.refresh(cwd),
   );
   registerContextCommands(pi, { agentRoot, globalDir, config });
+  registerQuarantineCommands(pi, quarantine);
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
@@ -324,6 +330,7 @@ export default function (pi: ExtensionAPI) {
     dbManager,
     project.workspaceId ?? null,
     async (cwd) => (await workspaceContextProvider.refresh(cwd))?.id ?? null,
+    quarantine,
   );
   registerIndexSessionsCommand(pi);
 

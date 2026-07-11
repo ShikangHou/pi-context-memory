@@ -4,6 +4,8 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { DatabaseManager } from '../store/db.js';
 import { searchMemories, getMemoryStats } from '../store/sqlite-memory-store.js';
 import type { MemoryCategory } from '../types.js';
+import { validateMemoryContent, type MemoryValidationOptions } from '../security/memory-validation.js';
+import type { MemoryQuarantine } from '../security/memory-quarantine.js';
 
 interface SearchResult {
   success: boolean;
@@ -19,6 +21,7 @@ export function registerMemorySearchTool(
   dbManager: DatabaseManager,
   currentWorkspaceId?: string | null,
   resolveWorkspaceId?: (cwd?: string) => Promise<string | null>,
+  quarantine?: MemoryQuarantine,
 ): void {
   pi.registerTool({
     name: 'memory_search',
@@ -88,14 +91,28 @@ Returns matching memory entries with workspace context and dates.`,
                 ...(workspaceId ? searchMemories(dbManager, query, { ...searchOptions, workspaceId, limit }) : []),
               ].slice(0, limit);
 
-      if (results.length === 0) {
+      const safeResults = results.filter((entry) => {
+        const validationOptions: MemoryValidationOptions = {
+          source: `sqlite-memory:${entry.id}`,
+          trustLevel: 'untrusted',
+          phase: 'recall',
+        };
+        const validation = validateMemoryContent(entry.content, validationOptions);
+        if (validation.accepted) return true;
+        if (validation.action === 'quarantine' && quarantine && validation.normalizedContent) {
+          quarantine.add(validation.normalizedContent, validationOptions, validation);
+        }
+        return false;
+      });
+
+      if (safeResults.length === 0) {
         const result: SearchResult = { success: true, count: 0, message: `No memories found matching "${query}". Try a different search term or broader query.` };
         return { content: [{ type: 'text' as const, text: result.message! }], details: result };
       }
 
-      let output = `Found ${results.length} memories matching "${query}":\n\n`;
+      let output = `Found ${safeResults.length} memories matching "${query}":\n\n`;
 
-      for (const entry of results) {
+      for (const entry of safeResults) {
         const projectLabel = entry.project ? `[workspace:${entry.project}]` : '[global]';
         const targetLabel = entry.target === 'user' ? '👤' : entry.target === 'failure' ? '⚠️' : '🧠';
         const categoryLabel = entry.category ? ` [${entry.category}]` : '';
@@ -103,7 +120,7 @@ Returns matching memory entries with workspace context and dates.`,
         output += `   Created: ${entry.created} | Last used: ${entry.lastReferenced}\n\n`;
       }
 
-      const finalResult: SearchResult = { success: true, count: results.length, output: output.trim() };
+      const finalResult: SearchResult = { success: true, count: safeResults.length, output: output.trim() };
       return { content: [{ type: 'text' as const, text: output.trim() }], details: finalResult };
     },
   });
