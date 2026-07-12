@@ -109,6 +109,24 @@ describe('DatabaseManager', () => {
       assert.ok(tableNames.includes('sessions'), 'sessions table missing');
       assert.ok(tableNames.includes('messages'), 'messages table missing');
       assert.ok(tableNames.includes('memories'), 'memories table missing');
+      assert.ok(tableNames.includes('memory_sync_state'), 'memory_sync_state table missing');
+    });
+
+    it('should create stable Workspace identity columns and indexes', () => {
+      const db = dbManager.getDb();
+      const memoryColumns = db.prepare('PRAGMA table_info(memories)').all() as { name: string }[];
+      const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
+      const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as { name: string }[];
+
+      assert.ok(memoryColumns.some((column) => column.name === 'workspace_id'));
+      assert.ok(memoryColumns.some((column) => column.name === 'workspace_name'));
+      assert.ok(memoryColumns.some((column) => column.name === 'memory_uid'));
+      assert.ok(memoryColumns.some((column) => column.name === 'source_file'));
+      assert.ok(memoryColumns.some((column) => column.name === 'source_hash'));
+      assert.ok(sessionColumns.some((column) => column.name === 'workspace_id'));
+      assert.ok(indexes.some((index) => index.name === 'idx_memories_workspace_id'));
+      assert.ok(indexes.some((index) => index.name === 'idx_memories_memory_uid'));
+      assert.ok(indexes.some((index) => index.name === 'idx_sessions_workspace_id'));
     });
 
     it('should create FTS5 virtual tables', () => {
@@ -172,6 +190,8 @@ describe('DatabaseManager', () => {
       assert.ok(names.includes('failure_reason'));
       assert.ok(names.includes('tool_state'));
       assert.ok(names.includes('corrected_to'));
+      assert.ok(names.includes('workspace_id'));
+      assert.ok(names.includes('workspace_name'));
 
       migratedManager.close();
     });
@@ -201,6 +221,7 @@ describe('DatabaseManager', () => {
       const names = columns.map((c) => c.name);
 
       assert.ok(names.includes('project'));
+      assert.ok(names.includes('workspace_id'));
 
       const row = migratedDb.prepare('SELECT project FROM sessions WHERE id = ?').get('legacy-session') as { project: string };
       assert.strictEqual(row.project, 'my-app');
@@ -240,6 +261,8 @@ describe('DatabaseManager', () => {
       const names = columns.map((c) => c.name);
 
       assert.ok(names.includes('project'));
+      assert.ok(names.includes('workspace_id'));
+      assert.ok(names.includes('workspace_name'));
 
       const row = migratedDb.prepare('SELECT project, content FROM memories').get() as {
         project: string | null;

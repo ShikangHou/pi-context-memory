@@ -7,7 +7,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { resolveProjectsRoot } from "./paths.js";
 import type { ProjectMemoryMode } from "./types.js";
-import { findGitRoot as findWorkspaceGitRoot, resolveWorkspace } from "./workspace/index.js";
+import { deriveWorkspaceId, findGitRoot as findWorkspaceGitRoot, resolveWorkspace } from "./workspace/resolve-workspace.js";
 
 export interface ProjectInfo {
   /** Project name (directory basename), or null if not in a project. */
@@ -16,6 +16,8 @@ export interface ProjectInfo {
   rootDir: string | null;
   /** Path to the project-scoped memory directory, or null. */
   memoryDir: string | null;
+  /** Stable Workspace identity for repo-local storage. Never use the display name for isolation. */
+  workspaceId?: string | null;
 }
 
 export interface ProjectSkillInfo extends ProjectInfo {
@@ -83,7 +85,8 @@ export function detectProject(
     return {
       name: workspace.displayName,
       rootDir: workspace.rootDir,
-      memoryDir: path.join(workspace.rootDir, options.projectMemoryDirName),
+      memoryDir: path.join(workspace.rootDir, options.projectMemoryDirName, "shared"),
+      workspaceId: workspace.workspaceId,
     };
   }
 
@@ -96,6 +99,7 @@ export function detectProject(
     name,
     rootDir: null,
     memoryDir: path.join(resolveProjectsRoot(options.projectsMemoryDir), name),
+    workspaceId: resolveWorkspace({ cwd: resolved })?.workspaceId ?? deriveWorkspaceId(resolved),
   };
 }
 

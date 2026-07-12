@@ -29,7 +29,7 @@ import { SkillStore } from "./store/skill-store.js";
 import { DatabaseManager } from "./store/db.js";
 import { indexSession, upsertSessionFileMetadata } from "./store/session-indexer.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
-import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
+import { scheduleLiveSessionIndex, setupObservationFlush, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
 import { registerSkillTool } from "./tools/skill-tool.js";
@@ -55,6 +55,14 @@ import { migrateLegacyProjectMemoryDirs } from "./project-memory-migration.js";
 import { migrateExtensionRoot } from "./extension-root-migration.js";
 import { AGENT_ROOT } from "./paths.js";
 import type { MemoryConfig } from "./types.js";
+import { WorkspaceContextProvider } from "./workspace/workspace-context-provider.js";
+import { MemoryQuarantine } from "./security/memory-quarantine.js";
+import { registerQuarantineCommands } from "./handlers/quarantine-command.js";
+import { registerMemoryDoctorCommands } from "./handlers/memory-doctor.js";
+import { setupObservationCheckpoints } from "./handlers/observation-checkpoint.js";
+import { setupAutomaticRecall } from "./handlers/automatic-recall.js";
+import { migrateWorkspaceLayout } from "./workspace/workspace-layout-migration.js";
+import { resolveWorkspace } from "./workspace/index.js";
 
 type ProjectDiscoveryConfig = Pick<MemoryConfig, "projectMemoryMode" | "projectsMemoryDir" | "projectMemoryDirName">;
 
@@ -108,7 +116,12 @@ export default function (pi: ExtensionAPI) {
   const shouldMigrateExtensionRoot = !configuredMemoryDir || pointsToLegacyMemoryDir;
   let extensionRootMigrated = false;
 
-  const store = new MemoryStore({ ...config, memoryDir: globalDir });
+  const quarantine = new MemoryQuarantine(path.join(globalDir, "runtime", "quarantine"));
+  const store = new MemoryStore({ ...config, memoryDir: globalDir }, quarantine);
+  const initialWorkspace = resolveWorkspace({ cwd: process.cwd() });
+  if (config.projectMemoryMode !== "central" && initialWorkspace) {
+    try { migrateWorkspaceLayout(initialWorkspace.rootDir, config.projectMemoryDirName); } catch { /* startup remains available */ }
+  }
   const project = detectProject(config);
   const projectName = project.name ?? "";
   const skillStore = new SkillStore({
@@ -136,7 +149,16 @@ export default function (pi: ExtensionAPI) {
   // remain in place while entries are copied/merged into projects-memory/.
   migrateLegacyProjectMemoryDirs(agentRoot, config.projectsMemoryDir);
   try {
-    syncMarkdownMemoriesToSqlite(dbManager, globalDir, config.projectsMemoryDir, agentRoot);
+    syncMarkdownMemoriesToSqlite(
+      dbManager,
+      globalDir,
+      config.projectsMemoryDir,
+      agentRoot,
+      project.memoryDir && project.workspaceId && project.name
+        ? { id: project.workspaceId, name: project.name, memoryDir: project.memoryDir }
+        : null,
+      quarantine,
+    );
   } catch {
     // Best-effort only: failed SQLite backfill should not block extension startup.
   }
@@ -147,7 +169,16 @@ export default function (pi: ExtensionAPI) {
   const projectConfig = project.memoryDir
     ? { ...config, memoryCharLimit: config.projectCharLimit, memoryDir: project.memoryDir }
     : { ...config, memoryDir: undefined };
-  const projectStore = project.memoryDir ? new MemoryStore(projectConfig) : null;
+  const projectStore = project.memoryDir ? new MemoryStore(projectConfig, quarantine) : null;
+  const workspaceContextProvider = new WorkspaceContextProvider(config, (storeConfig) => {
+    const dynamicStore = new MemoryStore(storeConfig, quarantine);
+    dynamicStore.setConsolidator(async (target, signal) => {
+      const toolTarget = target === "memory" ? "project" : target;
+      return triggerConsolidation(pi, dynamicStore, target, signal, config.consolidationTimeoutMs, toolTarget, config);
+    });
+    return dynamicStore;
+  });
+  if (projectStore) workspaceContextProvider.seed(project, projectStore);
 
   // ── 1. Load memory from disk on session start ──
   pi.on("session_start", async (_event, ctx) => {
@@ -161,10 +192,11 @@ export default function (pi: ExtensionAPI) {
     }
 
     refreshSkillProjectContext(ctx.cwd);
+    const activeWorkspace = await workspaceContextProvider.refresh(ctx.cwd);
     await skillStore.migrateLegacySkills();
     await skillStore.ensureDiscoveredRoots();
     await store.loadFromDisk();
-    if (projectStore) await projectStore.loadFromDisk();
+    if (activeWorkspace) await activeWorkspace.store.loadFromDisk();
 
     scheduleSessionBackfill(dbManager, sessionsDir, {
       notify: (message, level) => {
@@ -181,10 +213,19 @@ export default function (pi: ExtensionAPI) {
   });
 
   registerProjectSkillDiscoveryHandler(pi, skillStore, config);
+  pi.on("resources_discover", async (event, _ctx) => {
+    await workspaceContextProvider.refresh((event as { cwd?: string }).cwd);
+  });
 
   // ── 2. Inject memory policy by default; legacy mode keeps full frozen memory blocks ──
-  pi.on("before_agent_start", async (event, _ctx) => {
-    const promptContext = await buildPromptContext(config, store, projectStore, projectName);
+  pi.on("before_agent_start", async (event, ctx) => {
+    const activeWorkspace = await workspaceContextProvider.refresh(ctx.cwd);
+    const promptContext = await buildPromptContext(
+      config,
+      store,
+      activeWorkspace?.store ?? null,
+      activeWorkspace?.displayName ?? "",
+    );
 
     if (promptContext) {
       return {
@@ -192,21 +233,46 @@ export default function (pi: ExtensionAPI) {
       };
     }
   });
+  setupAutomaticRecall(pi, dbManager, config, async (cwd) => (await workspaceContextProvider.refresh(cwd))?.id ?? null);
 
   // ── 3. Register the memory tool (with project store + SQLite sync) ──
-  registerMemoryTool(pi, store, projectStore, dbManager, projectName);
+  registerMemoryTool(
+    pi,
+    store,
+    projectStore,
+    dbManager,
+    projectName,
+    project.workspaceId,
+    (cwd) => workspaceContextProvider.refresh(cwd),
+  );
 
   // ── 4. Register the skill tool ──
-  registerSkillTool(pi, skillStore);
+  registerSkillTool(pi, skillStore, async (cwd) => {
+    const activeWorkspace = await workspaceContextProvider.refresh(cwd);
+    skillStore.setProjectContext(
+      activeWorkspace?.displayName ?? null,
+      activeWorkspace?.skillsDir ?? null,
+    );
+  });
 
   // ── 5. Setup background learning loop (with tool-call-aware nudge) ──
   setupBackgroundReview(pi, store, projectStore, config, {
     dbManager,
     projectName: projectName || null,
+    workspaceId: project.workspaceId ?? null,
+    resolveWorkspaceContext: (cwd) => workspaceContextProvider.refresh(cwd),
   });
 
-  // ── 6. Setup session-end flush ──
-  setupSessionFlush(pi, store, projectStore, config);
+  // ── 6. Setup observation checkpoints before extraction handlers so a
+  // compaction range is durable even when memory extraction fails. ──
+  setupObservationFlush(pi, dbManager, {
+    onError: (err) => console.warn(`⚠️ Pre-compaction observation flush failed: ${err instanceof Error ? err.message : String(err)}`),
+  });
+  const observationCheckpoints = setupObservationCheckpoints(
+    pi,
+    async (cwd) => (await workspaceContextProvider.refresh(cwd))?.id ?? null,
+  );
+  setupSessionFlush(pi, store, projectStore, config, observationCheckpoints);
 
   // ── 7. Setup auto-consolidation (inject consolidator into stores) ──
   store.setConsolidator(async (target, signal) => {
@@ -218,10 +284,27 @@ export default function (pi: ExtensionAPI) {
       return triggerConsolidation(pi, projectStore, target, signal, config.consolidationTimeoutMs, toolTarget, config);
     });
   }
-  registerConsolidateCommand(pi, store, config.consolidationTimeoutMs, projectStore, projectName, config);
+  registerConsolidateCommand(
+    pi,
+    store,
+    config.consolidationTimeoutMs,
+    projectStore,
+    projectName,
+    config,
+    (cwd) => workspaceContextProvider.refresh(cwd),
+  );
 
   // ── 8. Setup correction detection ──
-  setupCorrectionDetector(pi, store, projectStore, config, dbManager, projectName);
+  setupCorrectionDetector(
+    pi,
+    store,
+    projectStore,
+    config,
+    dbManager,
+    projectName,
+    project.workspaceId,
+    (cwd) => workspaceContextProvider.refresh(cwd),
+  );
 
   // ── 9. Register commands ──
   registerInsightsCommand(pi, store, projectStore, projectName);
@@ -229,9 +312,37 @@ export default function (pi: ExtensionAPI) {
   registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
-  registerSyncMarkdownMemoriesCommand(pi, dbManager, globalDir, config.projectsMemoryDir, agentRoot);
-  registerPreviewContextCommand(pi, store, projectStore, projectName, config);
+  registerSyncMarkdownMemoriesCommand(
+    pi,
+    dbManager,
+    globalDir,
+    config.projectsMemoryDir,
+    agentRoot,
+    project.memoryDir && project.workspaceId && project.name
+      ? { id: project.workspaceId, name: project.name, memoryDir: project.memoryDir }
+      : null,
+    quarantine,
+  );
+  registerPreviewContextCommand(
+    pi,
+    store,
+    projectStore,
+    projectName,
+    config,
+    (cwd) => workspaceContextProvider.refresh(cwd),
+  );
   registerContextCommands(pi, { agentRoot, globalDir, config });
+  registerQuarantineCommands(pi, quarantine);
+  registerMemoryDoctorCommands(pi, dbManager, {
+    globalDir,
+    projectsMemoryDir: config.projectsMemoryDir,
+    agentRoot,
+    quarantine,
+    resolveActiveWorkspace: async (cwd) => {
+      const active = await workspaceContextProvider.refresh(cwd);
+      return active ? { id: active.id, displayName: active.displayName, memoryDir: active.memoryDir } : null;
+    },
+  });
 
   // ── 10. Live session indexing ──
   pi.on("message_end", async (_event, ctx) => {
@@ -242,7 +353,13 @@ export default function (pi: ExtensionAPI) {
 
   // ── 11. SQLite session search + extended memory ──
   registerSessionSearchTool(pi, dbManager, config.sessionSearch ?? { variant: "legacy" });
-  registerMemorySearchTool(pi, dbManager, projectName || null);
+  registerMemorySearchTool(
+    pi,
+    dbManager,
+    project.workspaceId ?? null,
+    async (cwd) => (await workspaceContextProvider.refresh(cwd))?.id ?? null,
+    quarantine,
+  );
   registerIndexSessionsCommand(pi);
 
   // ── 12. Auto-index session on shutdown ──

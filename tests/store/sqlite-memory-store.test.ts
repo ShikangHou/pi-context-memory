@@ -16,6 +16,7 @@ import {
   removeSyncedMemories,
   parseMarkdownMemoryEntry,
   formatFailureMemoryContent,
+  recordMemoryAccess,
 } from '../../src/store/sqlite-memory-store.js';
 
 describe('sqlite-memory-store', () => {
@@ -58,6 +59,24 @@ describe('sqlite-memory-store', () => {
     });
   });
 
+  describe('retrieval scoring and access statistics', () => {
+    it('returns a real positive FTS5 BM25 contribution', () => {
+      addMemory(dbManager, 'build build build failure retry', 'memory');
+      const [result] = searchMemories(dbManager, 'build failure');
+      assert.ok(typeof result.bm25Score === 'number');
+      assert.ok(result.bm25Score! > 0);
+    });
+
+    it('increments access_count without changing last_referenced', () => {
+      const entry = addMemory(dbManager, 'explicit access test', 'memory', null, null, null, null, null, '2026-01-01', '2026-01-02');
+      recordMemoryAccess(dbManager, [entry.id], new Date('2026-07-12T00:00:00Z'));
+      const row = dbManager.getDb().prepare('SELECT last_referenced, last_accessed_at, access_count FROM memories WHERE id = ?').get(entry.id) as any;
+      assert.equal(row.last_referenced, '2026-01-02');
+      assert.equal(row.last_accessed_at, '2026-07-12T00:00:00.000Z');
+      assert.equal(row.access_count, 1);
+    });
+  });
+
   describe('syncMemoryEntry', () => {
     it('deduplicates exact logical entries', () => {
       const first = syncMemoryEntry(dbManager, {
@@ -74,6 +93,31 @@ describe('sqlite-memory-store', () => {
       assert.strictEqual(getMemories(dbManager).length, 1);
     });
 
+    it('updates an existing row by stable memory UID when content changes', () => {
+      const first = syncMemoryEntry(dbManager, {
+        memoryUid: 'mem_stable-test',
+        content: 'original content',
+        target: 'memory',
+        sourceFile: '/tmp/MEMORY.md',
+        sourceHash: 'hash-before',
+      });
+      const second = syncMemoryEntry(dbManager, {
+        memoryUid: 'mem_stable-test',
+        content: 'updated content',
+        target: 'memory',
+        sourceFile: '/tmp/MEMORY.md',
+        sourceHash: 'hash-after',
+      });
+
+      assert.strictEqual(first.action, 'inserted');
+      assert.strictEqual(second.action, 'existing');
+      assert.strictEqual(second.entry.id, first.entry.id);
+      assert.strictEqual(second.entry.content, 'updated content');
+      assert.strictEqual(second.entry.memoryUid, 'mem_stable-test');
+      assert.strictEqual(second.entry.sourceHash, 'hash-after');
+      assert.strictEqual(getMemories(dbManager).length, 1);
+    });
+
     it('stores project-scoped memory with project name', () => {
       syncMemoryEntry(dbManager, {
         content: 'uses Prisma',
@@ -85,6 +129,31 @@ describe('sqlite-memory-store', () => {
       assert.strictEqual(results.length, 1);
       assert.strictEqual(results[0].project, 'project-a');
       assert.strictEqual(results[0].target, 'memory');
+    });
+
+    it('isolates same-named Workspaces by stable Workspace ID', () => {
+      syncMemoryEntry(dbManager, {
+        content: 'first repository convention',
+        target: 'memory',
+        project: 'repo',
+        workspaceId: 'ws_first',
+        workspaceName: 'repo',
+      });
+      syncMemoryEntry(dbManager, {
+        content: 'second repository convention',
+        target: 'memory',
+        project: 'repo',
+        workspaceId: 'ws_second',
+        workspaceName: 'repo',
+      });
+
+      const first = getMemories(dbManager, { workspaceId: 'ws_first' });
+      const second = getMemories(dbManager, { workspaceId: 'ws_second' });
+
+      assert.deepStrictEqual(first.map((entry) => entry.content), ['first repository convention']);
+      assert.deepStrictEqual(second.map((entry) => entry.content), ['second repository convention']);
+      assert.strictEqual(first[0].workspaceName, 'repo');
+      assert.strictEqual(second[0].workspaceName, 'repo');
     });
 
     it('preserves failure category metadata', () => {
@@ -114,6 +183,16 @@ describe('sqlite-memory-store', () => {
       assert.strictEqual(parsed.failureReason, 'npm install rewrote lockfile');
       assert.strictEqual(parsed.created, '2026-05-08');
       assert.strictEqual(parsed.lastReferenced, '2026-05-09');
+    });
+
+    it('parses stable IDs from current Markdown metadata', () => {
+      const parsed = parseMarkdownMemoryEntry(
+        'use pnpm <!-- id=mem_parse-test, created=2026-05-08, updated=2026-05-10, last=2026-05-11 -->',
+        'memory',
+      );
+      assert.strictEqual(parsed.memoryUid, 'mem_parse-test');
+      assert.strictEqual(parsed.created, '2026-05-08');
+      assert.strictEqual(parsed.lastReferenced, '2026-05-11');
     });
   });
 

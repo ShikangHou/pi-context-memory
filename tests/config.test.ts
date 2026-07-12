@@ -28,6 +28,12 @@ describe("loadConfig", () => {
     assert.strictEqual(config.flushOnShutdown, true);
     assert.strictEqual(config.flushMinTurns, 6);
     assert.strictEqual(config.flushRecentMessages, 0);
+    assert.strictEqual(config.autoRecallTopK, 6);
+    assert.strictEqual(config.autoRecallBudgetChars, 6000);
+    assert.strictEqual(config.autoRecallMaxEntryChars, 1500);
+    assert.strictEqual(config.autoRecallMaxTokens, 1500);
+    assert.strictEqual(config.autoRecallMode, 'off');
+    assert.strictEqual(config.autoRecallEnabled, false);
     assert.strictEqual(config.memoryOverflowStrategy, "auto-consolidate");
     assert.strictEqual(config.autoConsolidate, true);
     assert.strictEqual(config.failureInjectionEnabled, true);

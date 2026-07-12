@@ -72,7 +72,7 @@ describe("resources_discover skill path resolution", () => {
         projectMemoryMode: "repo-local",
         projectMemoryDirName: ".pi",
       }, nested);
-      const expectedPath = path.join(repo, ".pi", "skills");
+      const expectedPath = path.join(repo, ".pi", "shared", "skills");
 
       assert.deepStrictEqual(resource, { skillPaths: ["/tmp/global-skills", expectedPath] });
       assert.strictEqual(store.getProjectName(), "demo-repo");

@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DatabaseManager } from '../store/db.js';
 import {
@@ -13,6 +14,9 @@ import {
 } from '../store/sqlite-memory-store.js';
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
 import { AGENT_ROOT } from '../paths.js';
+import { validateMemoryContent, type MemoryValidationOptions } from '../security/memory-validation.js';
+import type { MemoryQuarantine } from '../security/memory-quarantine.js';
+import { recordMemorySyncState } from '../store/memory-sync-state.js';
 
 export interface BackfillCounters {
   filesScanned: number;
@@ -35,11 +39,35 @@ function importEntries(
   entries: string[],
   target: 'memory' | 'user' | 'failure',
   project: string | null = null,
+  workspaceId?: string | null,
+  workspaceName?: string | null,
+  sourceFile?: string,
+  quarantine?: MemoryQuarantine,
 ): void {
   for (const rawEntry of entries) {
     counters.entriesScanned++;
     try {
-      const parsed = parseMarkdownMemoryEntry(rawEntry, target, project);
+      const validationOptions: MemoryValidationOptions = {
+        source: project ? `markdown:${project}:${target}` : `markdown:global:${target}`,
+        trustLevel: 'untrusted',
+        phase: 'import',
+      };
+      const validation = validateMemoryContent(rawEntry, validationOptions);
+      if (!validation.accepted || !validation.normalizedContent) {
+        counters.skipped++;
+        if (validation.action === 'quarantine' && quarantine && validation.normalizedContent) {
+          const entry = quarantine.add(validation.normalizedContent, validationOptions, validation);
+          counters.warnings.push(`${validation.reason} Quarantine ID: ${entry.id}`);
+        } else {
+          counters.warnings.push(validation.reason ?? `Rejected ${validationOptions.source}`);
+        }
+        continue;
+      }
+      const parsed = parseMarkdownMemoryEntry(validation.normalizedContent, target, project);
+      parsed.sourceFile = sourceFile;
+      parsed.sourceHash = createHash('sha256').update(validation.normalizedContent).digest('hex');
+      if (workspaceId !== undefined) parsed.workspaceId = workspaceId;
+      if (workspaceName !== undefined) parsed.workspaceName = workspaceName;
       const result = syncMemoryEntry(dbManager, parsed);
       if (result.action === 'inserted') counters.imported++;
       else counters.skipped++;
@@ -92,6 +120,8 @@ export function syncMarkdownMemoriesToSqlite(
   globalDir: string,
   projectsMemoryDir?: string,
   agentRoot = AGENT_ROOT,
+  activeWorkspace?: { id: string; name: string; memoryDir: string } | null,
+  quarantine?: MemoryQuarantine,
 ): BackfillCounters & { projectCount: number } {
   const counters: BackfillCounters = {
     filesScanned: 0,
@@ -109,11 +139,14 @@ export function syncMarkdownMemoriesToSqlite(
     filePath: string,
     target: 'memory' | 'user' | 'failure',
     project: string | null = null,
+    workspaceId?: string | null,
+    workspaceName?: string | null,
   ) => {
     if (!fs.existsSync(filePath)) return;
     counters.filesScanned++;
     const entries = readEntries(filePath);
-    importEntries(dbManager, counters, entries, target, project);
+    importEntries(dbManager, counters, entries, target, project, workspaceId, workspaceName, filePath, quarantine);
+    recordMemorySyncState(dbManager, filePath, Date.now());
   };
 
   importFile(globalMemoryFile, 'memory');
@@ -125,6 +158,16 @@ export function syncMarkdownMemoriesToSqlite(
     importFile(project.memoryFile, 'memory', project.name);
   }
 
+  if (activeWorkspace) {
+    importFile(
+      path.join(activeWorkspace.memoryDir, MEMORY_FILE),
+      'memory',
+      activeWorkspace.name,
+      activeWorkspace.id,
+      activeWorkspace.name,
+    );
+  }
+
   return { ...counters, projectCount: projects.length };
 }
 
@@ -134,6 +177,8 @@ export function registerSyncMarkdownMemoriesCommand(
   globalDir: string,
   projectsMemoryDir?: string,
   agentRoot = AGENT_ROOT,
+  activeWorkspace?: { id: string; name: string; memoryDir: string } | null,
+  quarantine?: MemoryQuarantine,
 ): void {
   pi.registerCommand('memory-sync-markdown', {
     description: 'Backfill Markdown memories into the SQLite search store',
@@ -141,7 +186,7 @@ export function registerSyncMarkdownMemoriesCommand(
       ctx.ui.notify('🔄 Scanning Markdown memory files for SQLite backfill...', 'info');
 
       try {
-        const counters = syncMarkdownMemoriesToSqlite(dbManager, globalDir, projectsMemoryDir, agentRoot);
+        const counters = syncMarkdownMemoriesToSqlite(dbManager, globalDir, projectsMemoryDir, agentRoot, activeWorkspace, quarantine);
 
         let output = `\n✅ Markdown → SQLite sync complete!\n\n`;
         output += `📊 Results:\n`;

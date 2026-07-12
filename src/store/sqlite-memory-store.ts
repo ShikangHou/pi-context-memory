@@ -5,7 +5,12 @@ import type { MemoryCategory } from '../types.js';
 
 const MEMORY_SELECT_COLUMNS = `
   id,
+  memory_uid,
+  source_file,
+  source_hash,
   project,
+  workspace_id,
+  workspace_name,
   target,
   category,
   content,
@@ -14,6 +19,8 @@ const MEMORY_SELECT_COLUMNS = `
   corrected_to,
   created,
   last_referenced
+  ,last_accessed_at
+  ,access_count
 `;
 
 const FAILURE_CATEGORY_SET = new Set<MemoryCategory>([
@@ -30,7 +37,12 @@ const FAILURE_CATEGORY_SET = new Set<MemoryCategory>([
  */
 export interface SqliteMemoryEntry {
   id: number;
+  memoryUid: string | null;
+  sourceFile: string | null;
+  sourceHash: string | null;
   project: string | null;
+  workspaceId: string | null;
+  workspaceName: string | null;
   target: 'memory' | 'user' | 'failure';
   category: MemoryCategory | null;
   content: string;
@@ -39,18 +51,26 @@ export interface SqliteMemoryEntry {
   correctedTo: string | null;
   created: string;
   lastReferenced: string;
+  lastAccessedAt: string | null;
+  accessCount: number;
+  bm25Score?: number;
 }
 
 export interface SqliteMemorySyncInput {
   content: string;
   target: 'memory' | 'user' | 'failure';
   project?: string | null;
+  workspaceId?: string | null;
+  workspaceName?: string | null;
   category?: MemoryCategory | null;
   failureReason?: string | null;
   toolState?: string | null;
   correctedTo?: string | null;
   created?: string | null;
   lastReferenced?: string | null;
+  memoryUid?: string | null;
+  sourceFile?: string | null;
+  sourceHash?: string | null;
 }
 
 export interface SqliteMemorySyncResult {
@@ -72,6 +92,7 @@ export interface SqliteMemoryRemoveResult {
 export interface SqliteMemoryRemoveOptions {
   target: 'memory' | 'user' | 'failure';
   project?: string | null;
+  workspaceId?: string | null;
 }
 
 export interface ParsedMarkdownMemoryEntry extends SqliteMemorySyncInput {}
@@ -92,7 +113,12 @@ function normalizeCategory(value?: MemoryCategory | null): MemoryCategory | null
 
 function mapRow(row: {
   id: number;
+  memory_uid?: string | null;
+  source_file?: string | null;
+  source_hash?: string | null;
   project: string | null;
+  workspace_id?: string | null;
+  workspace_name?: string | null;
   target: string;
   category: string | null;
   content: string;
@@ -101,10 +127,17 @@ function mapRow(row: {
   corrected_to: string | null;
   created: string;
   last_referenced: string;
+  last_accessed_at?: string | null;
+  access_count?: number;
 }): SqliteMemoryEntry {
   return {
     id: row.id,
+    memoryUid: row.memory_uid ?? null,
+    sourceFile: row.source_file ?? null,
+    sourceHash: row.source_hash ?? null,
     project: row.project,
+    workspaceId: row.workspace_id ?? null,
+    workspaceName: row.workspace_name ?? null,
     target: row.target as 'memory' | 'user' | 'failure',
     category: row.category as MemoryCategory | null,
     content: row.content,
@@ -113,10 +146,18 @@ function mapRow(row: {
     correctedTo: row.corrected_to,
     created: row.created,
     lastReferenced: row.last_referenced,
+    lastAccessedAt: row.last_accessed_at ?? null,
+    accessCount: row.access_count ?? 0,
   };
 }
 
-function buildScopeConditions(params: unknown[], target?: string, project?: string | null, category?: MemoryCategory | null): string[] {
+function buildScopeConditions(
+  params: unknown[],
+  target?: string,
+  project?: string | null,
+  category?: MemoryCategory | null,
+  workspaceId?: string | null,
+): string[] {
   const conditions: string[] = [];
 
   if (target) {
@@ -124,7 +165,14 @@ function buildScopeConditions(params: unknown[], target?: string, project?: stri
     params.push(target);
   }
 
-  if (project !== undefined) {
+  if (workspaceId !== undefined) {
+    if (workspaceId === null) {
+      conditions.push('workspace_id IS NULL');
+    } else {
+      conditions.push('workspace_id = ?');
+      params.push(workspaceId);
+    }
+  } else if (project !== undefined) {
     if (project === null) {
       conditions.push('project IS NULL');
     } else {
@@ -179,13 +227,22 @@ function escapeLikePattern(text: string): string {
   return text.replace(/[\\%_]/g, '\\$&');
 }
 
-function parseMetadataComment(raw: string): { text: string; created: string; lastReferenced: string } {
-  const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
-  if (match) {
+function parseMetadataComment(raw: string): { text: string; memoryUid?: string; created: string; lastReferenced: string } {
+  const current = raw.match(/^(.*?)\s*<!--\s*id=([^,]+),\s*created=([^,]+),\s*updated=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
+  if (current) {
     return {
-      text: match[1].trim(),
-      created: match[2].trim(),
-      lastReferenced: match[3].trim(),
+      text: current[1].trim(),
+      memoryUid: current[2].trim(),
+      created: current[3].trim(),
+      lastReferenced: current[5].trim(),
+    };
+  }
+  const legacy = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
+  if (legacy) {
+    return {
+      text: legacy[1].trim(),
+      created: legacy[2].trim(),
+      lastReferenced: legacy[3].trim(),
     };
   }
 
@@ -210,18 +267,28 @@ export function addMemory(
   toolState: string | null = null,
   correctedTo: string | null = null,
   created = today(),
-  lastReferenced = created
+  lastReferenced = created,
+  workspaceId: string | null = null,
+  workspaceName: string | null = null,
+  memoryUid: string | null = null,
+  sourceFile: string | null = null,
+  sourceHash: string | null = null,
 ): SqliteMemoryEntry {
   const db = dbManager.getDb();
 
   const result = db.prepare(`
-    INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced);
+    INSERT INTO memories (memory_uid, source_file, source_hash, project, workspace_id, workspace_name, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(memoryUid, sourceFile, sourceHash, project, workspaceId, workspaceName, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced);
 
   return {
     id: Number(result.lastInsertRowid),
+    memoryUid,
+    sourceFile,
+    sourceHash,
     project,
+    workspaceId,
+    workspaceName,
     target,
     category,
     content,
@@ -230,6 +297,8 @@ export function addMemory(
     correctedTo,
     created,
     lastReferenced,
+    lastAccessedAt: null,
+    accessCount: 0,
   };
 }
 
@@ -265,7 +334,7 @@ export function parseMarkdownMemoryEntry(
   target: 'memory' | 'user' | 'failure',
   project: string | null = null,
 ): ParsedMarkdownMemoryEntry {
-  const { text, created, lastReferenced } = parseMetadataComment(rawEntry);
+  const { text, memoryUid, created, lastReferenced } = parseMetadataComment(rawEntry);
   const parsedProject = normalizeNullable(project);
 
   if (target !== 'failure') {
@@ -275,6 +344,7 @@ export function parseMarkdownMemoryEntry(
       project: parsedProject,
       created,
       lastReferenced,
+      memoryUid,
     };
   }
 
@@ -313,6 +383,7 @@ export function parseMarkdownMemoryEntry(
     correctedTo,
     created,
     lastReferenced,
+    memoryUid,
   };
 }
 
@@ -327,17 +398,27 @@ export function syncMemoryEntry(
   const db = dbManager.getDb();
   const content = input.content.trim();
   const project = normalizeNullable(input.project);
+  const workspaceId = normalizeNullable(input.workspaceId);
+  const workspaceName = normalizeNullable(input.workspaceName);
   const category = normalizeCategory(input.category);
   const failureReason = normalizeNullable(input.failureReason);
   const toolState = normalizeNullable(input.toolState);
   const correctedTo = normalizeNullable(input.correctedTo);
   const created = input.created?.trim() || today();
   const lastReferenced = input.lastReferenced?.trim() || created;
+  const memoryUid = normalizeNullable(input.memoryUid);
+  const sourceFile = normalizeNullable(input.sourceFile);
+  const sourceHash = normalizeNullable(input.sourceHash);
 
   const params: unknown[] = [];
-  const conditions = buildScopeConditions(params, input.target, project, category);
-  conditions.push('content = ?');
-  params.push(content);
+  const conditions = memoryUid
+    ? ['memory_uid = ?']
+    : buildScopeConditions(params, input.target, project, category, input.workspaceId === undefined ? undefined : workspaceId);
+  if (memoryUid) params.push(memoryUid);
+  else {
+    conditions.push('content = ?');
+    params.push(content);
+  }
 
   const existing = db.prepare(`
     SELECT ${MEMORY_SELECT_COLUMNS}
@@ -372,6 +453,11 @@ export function syncMemoryEntry(
         correctedTo,
         created,
         lastReferenced,
+        workspaceId,
+        workspaceName,
+        memoryUid,
+        sourceFile,
+        sourceHash,
       ),
     };
   }
@@ -385,15 +471,25 @@ export function syncMemoryEntry(
 
   db.prepare(`
     UPDATE memories
-    SET category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?
+    SET content = ?, category = ?, failure_reason = ?, tool_state = ?, corrected_to = ?, created = ?, last_referenced = ?,
+        memory_uid = COALESCE(memory_uid, ?), source_file = COALESCE(?, source_file), source_hash = COALESCE(?, source_hash),
+        project = ?, workspace_id = ?, workspace_name = ?, target = ?
     WHERE id = ?
   `).run(
+    content,
     updatedCategory,
     updatedFailureReason,
     updatedToolState,
     updatedCorrectedTo,
     updatedCreated,
     updatedLastReferenced,
+    memoryUid,
+    sourceFile,
+    sourceHash,
+    project,
+    workspaceId,
+    workspaceName,
+    input.target,
     existing.id,
   );
 
@@ -414,6 +510,7 @@ export function replaceSyncedMemories(
     content: string;
     target: 'memory' | 'user' | 'failure';
     project?: string | null;
+    workspaceId?: string | null;
     category?: MemoryCategory | null;
     failureReason?: string | null;
     toolState?: string | null;
@@ -425,7 +522,7 @@ export function replaceSyncedMemories(
   const normalizedOldText = normalizeMemoryLookupText(oldText);
   if (!normalizedOldText) return { matched: 0, updated: 0, entries: [] };
   const params: unknown[] = [];
-  const conditions = buildScopeConditions(params, updates.target, updates.project ?? undefined);
+  const conditions = buildScopeConditions(params, updates.target, updates.project ?? undefined, undefined, updates.workspaceId);
   conditions.push(`content LIKE ? ESCAPE '\\'`);
   params.push(`%${escapeLikePattern(normalizedOldText)}%`);
 
@@ -496,7 +593,7 @@ export function removeSyncedMemories(
   const normalizedOldText = normalizeMemoryLookupText(oldText);
   if (!normalizedOldText) return { matched: 0, removed: 0 };
   const params: unknown[] = [];
-  const conditions = buildScopeConditions(params, options.target, options.project ?? undefined);
+  const conditions = buildScopeConditions(params, options.target, options.project ?? undefined, undefined, options.workspaceId);
   conditions.push(`content LIKE ? ESCAPE '\\'`);
   params.push(`%${escapeLikePattern(normalizedOldText)}%`);
 
@@ -532,7 +629,7 @@ export function removeExactSyncedMemories(
 ): SqliteMemoryRemoveResult {
   const db = dbManager.getDb();
   const params: unknown[] = [];
-  const conditions = buildScopeConditions(params, options.target, options.project ?? undefined);
+  const conditions = buildScopeConditions(params, options.target, options.project ?? undefined, undefined, options.workspaceId);
   conditions.push('content = ?');
   params.push(content.trim());
 
@@ -562,14 +659,14 @@ export function removeExactSyncedMemories(
 export function searchMemories(
   dbManager: DatabaseManager,
   query: string,
-  options: { project?: string | null; target?: string; category?: MemoryCategory; limit?: number } = {}
+  options: { project?: string | null; workspaceId?: string | null; target?: string; category?: MemoryCategory; limit?: number } = {}
 ): SqliteMemoryEntry[] {
   if (query.trim().length === 0) {
     return [];
   }
 
   const db = dbManager.getDb();
-  const { project, target, category, limit = 10 } = options;
+  const { project, workspaceId, target, category, limit = 10 } = options;
 
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -587,7 +684,14 @@ export function searchMemories(
     conditions.push('m.id IN (SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?)');
     params.push(matchQuery);
 
-    if (project !== undefined) {
+    if (workspaceId !== undefined) {
+      if (workspaceId === null) {
+        conditions.push('m.workspace_id IS NULL');
+      } else {
+        conditions.push('m.workspace_id = ?');
+        params.push(workspaceId);
+      }
+    } else if (project !== undefined) {
       if (project === null) {
         conditions.push('m.project IS NULL');
       } else {
@@ -630,7 +734,13 @@ export function searchMemories(
         last_referenced: string;
       }>;
 
-      return rows.map(mapRow);
+      const score = db.prepare('SELECT bm25(memory_fts) AS score FROM memory_fts WHERE rowid = ? AND memory_fts MATCH ?');
+      return rows.map((row) => {
+        const entry = mapRow(row);
+        const ranked = score.get(entry.id, matchQuery) as { score?: number } | undefined;
+        entry.bm25Score = typeof ranked?.score === 'number' ? -ranked.score : 0;
+        return entry;
+      });
     } catch (err) {
       if (isFts5QueryError(err)) {
         return [];
@@ -652,20 +762,35 @@ export function searchMemories(
   return runSearch(fallbackQuery);
 }
 
+export function recordMemoryAccess(dbManager: DatabaseManager, ids: number[], accessedAt = new Date()): void {
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  if (unique.length === 0) return;
+  const placeholders = unique.map(() => '?').join(', ');
+  dbManager.getDb().prepare(`UPDATE memories SET last_accessed_at = ?, access_count = access_count + 1 WHERE id IN (${placeholders})`)
+    .run(accessedAt.toISOString(), ...unique);
+}
+
 /**
  * Get all memories, optionally filtered.
  */
 export function getMemories(
   dbManager: DatabaseManager,
-  options: { project?: string | null; target?: string; category?: MemoryCategory } = {}
+  options: { project?: string | null; workspaceId?: string | null; target?: string; category?: MemoryCategory } = {}
 ): SqliteMemoryEntry[] {
   const db = dbManager.getDb();
-  const { project, target, category } = options;
+  const { project, workspaceId, target, category } = options;
 
   const conditions: string[] = [];
   const params: unknown[] = [];
 
-  if (project !== undefined) {
+  if (workspaceId !== undefined) {
+    if (workspaceId === null) {
+      conditions.push('workspace_id IS NULL');
+    } else {
+      conditions.push('workspace_id = ?');
+      params.push(workspaceId);
+    }
+  } else if (project !== undefined) {
     if (project === null) {
       conditions.push('project IS NULL');
     } else {

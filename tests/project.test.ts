@@ -36,7 +36,8 @@ describe("project detection", () => {
 
       assert.strictEqual(result.name, "demo-repo");
       assert.strictEqual(result.rootDir, repo);
-      assert.strictEqual(result.memoryDir, path.join(repo, ".pi"));
+      assert.strictEqual(result.memoryDir, path.join(repo, ".pi", "shared"));
+      assert.match(result.workspaceId ?? "", /^ws_[a-f0-9]{24}$/);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -82,7 +83,7 @@ describe("project detection", () => {
 
       assert.strictEqual(result.name, "demo-repo");
       assert.strictEqual(result.rootDir, repo);
-      assert.strictEqual(result.memoryDir, path.join(repo, ".pi"));
+      assert.strictEqual(result.memoryDir, path.join(repo, ".pi", "shared"));
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

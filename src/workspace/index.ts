@@ -1,4 +1,5 @@
 export {
+  deriveWorkspaceId,
   findGitRoot,
   findLegacyProjectMarkerRoot,
   findWorkspaceMarkerRoot,
@@ -11,3 +12,5 @@ export type {
   WorkspaceResolutionOptions,
   WorkspaceSource,
 } from "./resolve-workspace.js";
+export { WorkspaceContextProvider } from "./workspace-context-provider.js";
+export type { ActiveWorkspaceContext } from "./workspace-context-provider.js";

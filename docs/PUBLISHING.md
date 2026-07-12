@@ -1,149 +1,104 @@
-# Publishing to pi.dev/packages
+# Publishing pi-context-memory
 
-## How pi.dev/packages Works
+The maintained distribution publishes the npm package `pi-hermes-memory`. The
+`pi-package` keyword and `pi.extensions` manifest in `package.json` make the
+published package discoverable by Pi.
 
-The [package gallery](https://pi.dev/packages) automatically displays any npm package tagged with the keyword `pi-package`. There is no manual submission — you publish to npm, and pi.dev picks it up.
+## Stable release prerequisites
 
-## What We Need
+1. Complete the release checklist in `docs/0.8/PLAN.md`.
+2. Keep automatic recall disabled by default.
+3. Merge the release PR into the default branch. GitHub only permits manual
+   dispatch of `.github/workflows/publish.yml` after that workflow exists on
+   the default branch.
+4. Confirm `package.json` and `package-lock.json` contain the same stable
+   version and that the version is not already present on npm.
+5. Ensure the protected `publish` environment has a valid `NPM_TOKEN` secret
+   authorized to publish `pi-hermes-memory`.
 
-### 1. Update `package.json` with Pi manifest
+Do not publish a stable package directly from an unmerged Draft PR branch.
 
-Current state:
-```json
-{
-  "name": "pi-hermes-memory",
-  "keywords": []  // missing pi-package keyword
-  // no "pi" manifest
-}
-```
+## Preflight
 
-Target state:
-```json
-{
-  "name": "pi-hermes-memory",
-  "version": "0.1.0",
-  "description": "Persistent memory and self-directed learning loop for Pi — ported from the Hermes agent harness.",
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "memory",
-    "learning",
-    "hermes"
-  ],
-  "files": [
-    "src",
-    "README.md",
-    "LICENSE"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/chandra447/pi-hermes-memory"
-  },
-  "pi": {
-    "extensions": ["./src/index.ts"],
-    "image": "https://raw.githubusercontent.com/chandra447/pi-hermes-memory/main/docs/assets/hermes-memory-preview.png"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
-  }
-}
-```
-
-Key changes:
-- `"keywords": ["pi-package", ...]` — **required** for pi.dev listing
-- `"pi": { "extensions": ["./src/index.ts"] }` — tells Pi where the entry point is
-- `"files": ["src", "README.md", "LICENSE"]` — only publish what's needed
-- `"peerDependencies"` — Pi provides the API, no runtime deps needed
-- `"pi": { "image": "..." }` — optional preview image for the gallery
-
-### 2. npm account setup
+From the merged release commit:
 
 ```bash
-# Login to npm (create account at npmjs.com if needed)
-npm login
-
-# Verify you're logged in
-npm whoami
+npm install
+npm run check
+npm test
+npm pack --dry-run
+npm view pi-hermes-memory version dist-tags --json
+git status --short
 ```
 
-### 3. Publish
+The working tree must be clean, the full native-SQLite suite must pass, and
+the intended version must not already exist in the registry.
+
+## GitHub Actions dry run
+
+Run the `Publish to npm` workflow on the default branch with `dry-run=true`.
+The workflow repeats installation, type checking, the full test suite, and
+`npm publish --dry-run --access public` in the same environment used for the
+real publication.
+
+Using GitHub CLI after the workflow has been merged:
 
 ```bash
-# Dry run first — verify what gets published
-npm publish --dry-run
-
-# Publish as public (scoped packages default to restricted)
-npm publish --access public
+gh workflow run publish.yml --ref main -f dry-run=true
+gh run watch --exit-status
 ```
 
-### 4. Verify
+Inspect the tarball file list and package version before continuing.
 
-After publishing:
-1. Check `https://www.npmjs.com/package/pi-hermes-memory`
-2. Check `https://pi.dev/packages` — should appear within minutes
-3. Test install: `pi install npm:pi-hermes-memory`
+## Publish
 
-## Post-Publish
-
-### Installation becomes one command
-
-Before (git):
-```bash
-pi install git:github:chandra447/pi-hermes-memory
-```
-
-After (npm):
-```bash
-pi install npm:pi-hermes-memory
-```
-
-### Update README installation instructions
-
-Replace:
-```
-pi install github:chandra447/pi-hermes-memory
-```
-
-With:
-```
-pi install npm:pi-hermes-memory
-```
-
-Keep the git option as an alternative.
-
-### Version updates
+Run the same workflow on the exact merged release commit with
+`dry-run=false`:
 
 ```bash
-# Patch (0.1.0 → 0.1.1): bug fixes
-npm version patch && npm publish
-
-# Minor (0.1.0 → 0.2.0): new features, backwards compatible
-npm version minor && npm publish
-
-# Major (0.1.0 → 1.0.0): breaking changes
-npm version major && npm publish
+gh workflow run publish.yml --ref main -f dry-run=false
+gh run watch --exit-status
 ```
 
-## Checklist
+The `publish` environment may require maintainer approval. Do not bypass its
+protection rules or publish from an unrelated local npm identity.
 
-- [ ] Update `package.json` with `pi` manifest and `pi-package` keyword
-- [ ] Remove `devDependencies` that shouldn't ship (keep `peerDependencies` only)
-- [ ] Add `"files"` field to control what npm includes
-- [ ] Create npm account if needed
-- [ ] `npm login`
-- [ ] `npm publish --dry-run` — verify contents
-- [ ] `npm publish --access public`
-- [ ] Verify on npmjs.com
-- [ ] Verify on pi.dev/packages
-- [ ] Test `pi install npm:pi-hermes-memory`
-- [ ] Update README installation instructions
-- [ ] Add demo screenshot/image for pi.dev gallery (optional but recommended)
-- [ ] Tag release: `git tag v0.1.0-npm && git push --tags`
+## Tag and GitHub Release
 
-## Reference
+After npm publication succeeds, tag the same merged commit and create the
+GitHub Release:
 
-- [Pi Packages docs](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/docs/packages.md)
-- [pi.dev/packages](https://pi.dev/packages)
-- [npm search for pi-package](https://www.npmjs.com/search?q=keywords%3Api-package)
-- Example: [@samfp/pi-memory](https://www.npmjs.com/package/@samfp/pi-memory) — 6k downloads, same pattern
+```bash
+git tag -s v0.8.0 <merged-release-commit>
+git push origin v0.8.0
+gh release create v0.8.0 --verify-tag --generate-notes --title "v0.8.0"
+```
+
+If signed tags are unavailable, stop and obtain an explicit maintainer
+decision before creating an unsigned release tag.
+
+## Verification
+
+```bash
+npm view pi-hermes-memory@0.8.0 version dist.integrity --json
+pi install npm:pi-hermes-memory@0.8.0
+```
+
+Also verify:
+
+- the GitHub Release tag points to the merged release commit;
+- `https://www.npmjs.com/package/pi-hermes-memory` shows `0.8.0` as `latest`;
+- the package appears on `https://pi.dev/packages`;
+- a clean install loads `src/index.ts` and keeps automatic recall off.
+
+Only after these checks pass should `Stable release` be marked complete in
+`docs/0.8/PLAN.md`.
+
+## Release failure handling
+
+- If verification fails, do not publish.
+- If npm publication fails before accepting the version, fix the workflow and
+  rerun it from the same commit.
+- If npm accepted the version, never overwrite it. Prepare a patch release.
+- If the npm package and Git tag point at different source, stop distribution
+  and document the mismatch before taking corrective action.

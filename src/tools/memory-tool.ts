@@ -19,6 +19,7 @@ import {
 import { MEMORY_TOOL_DESCRIPTION } from "../constants.js";
 import type { MemoryCategory, MemoryResult } from "../types.js";
 import { decideMemoryWrite } from "../context/write-time-consistency.js";
+import type { ActiveWorkspaceContext } from "../workspace/workspace-context-provider.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
   const warnings = [...(((result as any).warnings ?? []) as string[]), warning];
@@ -61,6 +62,8 @@ interface ResolvedMemoryRoute {
   scope: "global" | "workspace";
   target: "memory" | "user" | "failure";
   sqliteProject: string | null;
+  sqliteWorkspaceId: string | null | undefined;
+  sqliteWorkspaceName: string | null;
   legacyProjectTarget: boolean;
 }
 
@@ -68,6 +71,7 @@ function normalizeMemoryRoute(
   rawTarget: MemoryToolTarget,
   rawScope: MemoryToolScope | undefined,
   projectName?: string | null,
+  workspaceId?: string | null,
 ): ResolvedMemoryRoute {
   const scope = rawTarget === "project"
     ? "workspace"
@@ -76,11 +80,14 @@ function normalizeMemoryRoute(
       : rawScope ?? "global";
   const target = rawTarget === "project" ? "memory" : rawTarget;
   const sqliteProject = scope === "workspace" ? projectName?.trim() || null : null;
+  const sqliteWorkspaceId = scope === "workspace" ? workspaceId?.trim() || undefined : null;
 
   return {
     scope,
     target,
     sqliteProject,
+    sqliteWorkspaceId,
+    sqliteWorkspaceName: sqliteProject,
     legacyProjectTarget: rawTarget === "project",
   };
 }
@@ -104,6 +111,8 @@ async function syncAddToSqlite(
         }),
         target: "failure",
         project: route.sqliteProject,
+        workspaceId: route.sqliteWorkspaceId,
+        workspaceName: route.sqliteWorkspaceName,
         category: failureCategory,
         failureReason,
       });
@@ -114,6 +123,8 @@ async function syncAddToSqlite(
       content,
       target: route.target,
       project: route.sqliteProject,
+      workspaceId: route.sqliteWorkspaceId,
+      workspaceName: route.sqliteWorkspaceName,
     });
     return null;
   } catch (err) {
@@ -134,6 +145,7 @@ async function syncReplaceToSqlite(
       content: newContent,
       target: route.target,
       project: route.sqliteProject,
+      workspaceId: route.sqliteWorkspaceId,
     });
 
     if (syncResult.matched === 0) {
@@ -157,6 +169,7 @@ async function syncRemoveFromSqlite(
     const syncResult = removeSyncedMemories(dbManager, oldText, {
       target: route.target,
       project: route.sqliteProject,
+      workspaceId: route.sqliteWorkspaceId,
     });
 
     if (syncResult.matched === 0) {
@@ -182,6 +195,7 @@ async function syncEvictionsFromSqlite(
       removeExactSyncedMemories(dbManager, entry, {
         target: route.target,
         project: route.sqliteProject,
+        workspaceId: route.sqliteWorkspaceId,
       });
     } catch {
       // FIFO already updated the Markdown source of truth. SQLite is only a
@@ -196,6 +210,8 @@ export function registerMemoryTool(
   projectStore: MemoryStore | null,
   dbManager: DatabaseManager | null = null,
   projectName?: string | null,
+  workspaceId?: string | null,
+  resolveWorkspaceContext?: (cwd?: string) => Promise<ActiveWorkspaceContext | null>,
 ): void {
   pi.registerTool({
     name: "memory",
@@ -244,11 +260,17 @@ export function registerMemoryTool(
         category?: MemoryCategory;
         failure_reason?: string;
       };
-      const route = normalizeMemoryRoute(rawTarget, rawScope, projectName);
+      const dynamicWorkspace = resolveWorkspaceContext
+        ? await resolveWorkspaceContext((ctx as { cwd?: string } | undefined)?.cwd)
+        : undefined;
+      const activeProjectStore = resolveWorkspaceContext ? dynamicWorkspace?.store ?? null : projectStore;
+      const activeProjectName = resolveWorkspaceContext ? dynamicWorkspace?.displayName ?? null : projectName;
+      const activeWorkspaceId = resolveWorkspaceContext ? dynamicWorkspace?.id ?? null : workspaceId;
+      const route = normalizeMemoryRoute(rawTarget, rawScope, activeProjectName, activeWorkspaceId);
 
-      const activeStore = route.scope === "workspace" ? projectStore : store;
+      const activeStore = route.scope === "workspace" ? activeProjectStore : store;
 
-      if (route.scope === "workspace" && !projectStore) {
+      if (route.scope === "workspace" && !activeProjectStore) {
         return {
           content: [{ type: "text", text: JSON.stringify({ success: false, error: "Workspace memory is not available (no workspace detected)." }) }],
           details: {},
