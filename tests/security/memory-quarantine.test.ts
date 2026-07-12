@@ -25,7 +25,9 @@ describe("MemoryQuarantine", () => {
     assert.strictEqual(first.id, second.id);
     assert.strictEqual(quarantine.list().length, 1);
     const mode = fs.statSync(path.join(quarantine.getDirectory(), `${first.id}.json`)).mode & 0o777;
-    assert.strictEqual(mode, 0o600);
+    // Windows does not implement POSIX permission bits; Node reports the
+    // writable file as 0o666 even when it was created with mode 0o600.
+    if (process.platform !== "win32") assert.strictEqual(mode, 0o600);
     assert.strictEqual(quarantine.delete(first.id), true);
     assert.strictEqual(quarantine.list().length, 0);
     assert.strictEqual(quarantine.delete("../../unsafe"), false);
