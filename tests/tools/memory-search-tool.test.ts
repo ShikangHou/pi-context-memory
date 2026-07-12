@@ -39,6 +39,9 @@ describe('registerMemorySearchTool', () => {
     assert.strictEqual(result.details.success, true);
     assert.strictEqual(result.details.count, 1);
     assert.match(result.content[0].text, /Naruto/);
+    assert.doesNotMatch(result.content[0].text, /Last used:/);
+    const access = dbManager.getDb().prepare('SELECT access_count FROM memories').get() as { access_count: number };
+    assert.equal(access.access_count, 1);
 
     dbManager.close();
   });

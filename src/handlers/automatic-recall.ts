@@ -39,7 +39,8 @@ export function setupAutomaticRecall(
         ...(workspaceId ? searchMemories(db, routed.query, { workspaceId, limit }) : []),
       ].filter((row) => validateMemoryContent(row.content, { source: `auto-recall:${row.id}`, trustLevel: 'untrusted', phase: 'recall' }).accepted);
       const ranked = rankMemoryCandidates(rows.map((row) => ({ id: row.memoryUid ?? String(row.id), content: row.content,
-        workspaceId: row.workspaceId, category: row.category, created: row.created, lastReferenced: row.lastReferenced })), workspaceId);
+        workspaceId: row.workspaceId, category: row.category, bm25Score: row.bm25Score,
+        created: row.created, lastReferenced: row.lastReferenced })), workspaceId);
       const packed = packMemoryCandidates(ranked, workspaceId, { topK: config.autoRecallTopK ?? 6,
         maxChars: config.autoRecallBudgetChars ?? 6000, maxEntryChars: config.autoRecallMaxEntryChars ?? 1500,
         maxTokens: config.autoRecallMaxTokens ?? 1500 });

@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { DatabaseManager } from '../store/db.js';
-import { searchMemories, getMemoryStats } from '../store/sqlite-memory-store.js';
+import { searchMemories, getMemoryStats, recordMemoryAccess } from '../store/sqlite-memory-store.js';
 import type { MemoryCategory } from '../types.js';
 import { validateMemoryContent, type MemoryValidationOptions } from '../security/memory-validation.js';
 import type { MemoryQuarantine } from '../security/memory-quarantine.js';
@@ -110,6 +110,8 @@ Returns matching memory entries with workspace context and dates.`,
         return { content: [{ type: 'text' as const, text: result.message! }], details: result };
       }
 
+      recordMemoryAccess(dbManager, safeResults.map((entry) => entry.id));
+
       let output = `Found ${safeResults.length} memories matching "${query}":\n\n`;
 
       for (const entry of safeResults) {
@@ -117,7 +119,7 @@ Returns matching memory entries with workspace context and dates.`,
         const targetLabel = entry.target === 'user' ? '👤' : entry.target === 'failure' ? '⚠️' : '🧠';
         const categoryLabel = entry.category ? ` [${entry.category}]` : '';
         output += `${targetLabel} ${projectLabel}${categoryLabel} ${entry.content}\n`;
-        output += `   Created: ${entry.created} | Last used: ${entry.lastReferenced}\n\n`;
+        output += `   Created: ${entry.created} | Explicitly read now | Prior access count: ${entry.accessCount}\n\n`;
       }
 
       const finalResult: SearchResult = { success: true, count: safeResults.length, output: output.trim() };

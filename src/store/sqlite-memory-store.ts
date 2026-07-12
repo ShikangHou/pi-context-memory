@@ -19,6 +19,8 @@ const MEMORY_SELECT_COLUMNS = `
   corrected_to,
   created,
   last_referenced
+  ,last_accessed_at
+  ,access_count
 `;
 
 const FAILURE_CATEGORY_SET = new Set<MemoryCategory>([
@@ -49,6 +51,9 @@ export interface SqliteMemoryEntry {
   correctedTo: string | null;
   created: string;
   lastReferenced: string;
+  lastAccessedAt: string | null;
+  accessCount: number;
+  bm25Score?: number;
 }
 
 export interface SqliteMemorySyncInput {
@@ -122,6 +127,8 @@ function mapRow(row: {
   corrected_to: string | null;
   created: string;
   last_referenced: string;
+  last_accessed_at?: string | null;
+  access_count?: number;
 }): SqliteMemoryEntry {
   return {
     id: row.id,
@@ -139,6 +146,8 @@ function mapRow(row: {
     correctedTo: row.corrected_to,
     created: row.created,
     lastReferenced: row.last_referenced,
+    lastAccessedAt: row.last_accessed_at ?? null,
+    accessCount: row.access_count ?? 0,
   };
 }
 
@@ -288,6 +297,8 @@ export function addMemory(
     correctedTo,
     created,
     lastReferenced,
+    lastAccessedAt: null,
+    accessCount: 0,
   };
 }
 
@@ -723,7 +734,13 @@ export function searchMemories(
         last_referenced: string;
       }>;
 
-      return rows.map(mapRow);
+      const score = db.prepare('SELECT bm25(memory_fts) AS score FROM memory_fts WHERE rowid = ? AND memory_fts MATCH ?');
+      return rows.map((row) => {
+        const entry = mapRow(row);
+        const ranked = score.get(entry.id, matchQuery) as { score?: number } | undefined;
+        entry.bm25Score = typeof ranked?.score === 'number' ? -ranked.score : 0;
+        return entry;
+      });
     } catch (err) {
       if (isFts5QueryError(err)) {
         return [];

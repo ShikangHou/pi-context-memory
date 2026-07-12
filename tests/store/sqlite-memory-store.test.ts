@@ -16,6 +16,7 @@ import {
   removeSyncedMemories,
   parseMarkdownMemoryEntry,
   formatFailureMemoryContent,
+  recordMemoryAccess,
 } from '../../src/store/sqlite-memory-store.js';
 
 describe('sqlite-memory-store', () => {
@@ -55,6 +56,24 @@ describe('sqlite-memory-store', () => {
     it('should add a global entry (null project)', () => {
       const entry = addMemory(dbManager, 'timezone: AEST');
       assert.strictEqual(entry.project, null);
+    });
+  });
+
+  describe('retrieval scoring and access statistics', () => {
+    it('returns a real positive FTS5 BM25 contribution', () => {
+      addMemory(dbManager, 'build build build failure retry', 'memory');
+      const [result] = searchMemories(dbManager, 'build failure');
+      assert.ok(typeof result.bm25Score === 'number');
+      assert.ok(result.bm25Score! > 0);
+    });
+
+    it('increments access_count without changing last_referenced', () => {
+      const entry = addMemory(dbManager, 'explicit access test', 'memory', null, null, null, null, null, '2026-01-01', '2026-01-02');
+      recordMemoryAccess(dbManager, [entry.id], new Date('2026-07-12T00:00:00Z'));
+      const row = dbManager.getDb().prepare('SELECT last_referenced, last_accessed_at, access_count FROM memories WHERE id = ?').get(entry.id) as any;
+      assert.equal(row.last_referenced, '2026-01-02');
+      assert.equal(row.last_accessed_at, '2026-07-12T00:00:00.000Z');
+      assert.equal(row.access_count, 1);
     });
   });
 
