@@ -12,4 +12,4 @@ Covered regression scenarios include same-named Workspace isolation, malicious M
 
 `evaluateMemoryRetrieval()` reports Workspace leakage, dangerous injection, concurrent-write loss, duplicate observations, precision@K, router false-positive/false-negative rates, average characters/tokens, P50/P95 latency, and Markdown/SQLite divergence. `assertReleaseSafety()` makes leakage, dangerous injection, concurrent-write loss, duplicate observation, and divergence zero-tolerance release gates.
 
-The CI matrix runs Node 20 and 22 on Linux, macOS, and Windows. Remote CI results are required before promoting this release candidate to stable.
+GitHub Actions run [29177361120](https://github.com/ShikangHou/pi-context-memory/actions/runs/29177361120) passed on 2026-07-12. It verified Node 20 and 22 on Ubuntu, macOS, and Windows, together with the dedicated lint and type-check jobs. The release candidate therefore satisfies the planned cross-platform and supported-Node matrix gates.

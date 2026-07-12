@@ -648,8 +648,8 @@ Metrics:
 - [x] `npm run check`.
 - [x] Full test suite.
 - [x] Native SQLite installation smoke test.
-- [ ] macOS/Linux/Windows CI.
-- [ ] Node version matrix.
+- [x] macOS/Linux/Windows CI.
+- [x] Node version matrix.
 - [x] Migration dry run.
 - [x] README update.
 - [x] Security documentation update.
